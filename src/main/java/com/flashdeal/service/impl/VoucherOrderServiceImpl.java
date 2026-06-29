@@ -3,6 +3,7 @@ package com.flashdeal.service.impl;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.flashdeal.common.constant.MessageConstant;
 import com.flashdeal.common.constant.RedisKeyConstant;
+import com.flashdeal.common.utils.SnowflakeIdGenerate;
 import com.flashdeal.domain.Result;
 import com.flashdeal.domain.VoucherOrder;
 import com.flashdeal.common.exception.BusinessException;
@@ -11,7 +12,6 @@ import com.flashdeal.rocketmq.VoucherOrderProducer;
 import com.flashdeal.service.ISeckillVoucherService;
 import com.flashdeal.service.IVoucherOrderService;
 import com.flashdeal.common.utils.LuaScriptUtil;
-import com.flashdeal.common.utils.RedisIdGenerate;
 import com.flashdeal.common.utils.UserHolder;
 import io.lettuce.core.RedisCommandTimeoutException;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
 
-    private final RedisIdGenerate redisIdGenerate;
+    private final SnowflakeIdGenerate snowflakeIdGenerate;
     private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
     private final VoucherOrderProducer voucherOrderProducer;
@@ -48,7 +48,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Override
     public Result seckillVoucher(Long voucherId) {
-        Long orderId = redisIdGenerate.generateId(RedisKeyConstant.SECKILLVOUCHER_ORDER);
+        Long orderId = snowflakeIdGenerate.nextId();
         Long userId = UserHolder.getCurrentId();
         log.info("生成订单ID={}, userId={}", orderId, userId);
 

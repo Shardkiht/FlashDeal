@@ -18,8 +18,7 @@
         <java.version>17</java.version>
         <mybatis-plus.version>3.5.16</mybatis-plus.version>
         <redisson.version>3.27.0</redisson.version>
-        <rocketmq-starter.version>2.2.3</rocketmq-starter.version>
-        <rocketmq-client.version>4.9.7</rocketmq-client.version>
+        <rocketmq-starter.version>2.3.3</rocketmq-starter.version>
         <jjwt.version>0.12.6</jjwt.version>
     </properties>
 
@@ -74,17 +73,6 @@
             <groupId>org.apache.rocketmq</groupId>
             <artifactId>rocketmq-spring-boot-starter</artifactId>
             <version>${rocketmq-starter.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.rocketmq</groupId>
-                    <artifactId>rocketmq-client</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.rocketmq</groupId>
-            <artifactId>rocketmq-client</artifactId>
-            <version>${rocketmq-client.version}</version>
         </dependency>
 
         <!-- JJWT -->
@@ -111,6 +99,12 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+            <version>5.8.34</version>
         </dependency>
 
         <!-- Test -->
