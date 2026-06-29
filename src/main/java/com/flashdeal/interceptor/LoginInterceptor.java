@@ -30,10 +30,25 @@ public class LoginInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        // 1. 从请求头中获取令牌
+        // 1. 登录接口直接放行
+        String requestURI = request.getRequestURI();
+        if (requestURI.contains("/user/login")) {
+            return true;
+        }
+
+        // 2. 从请求头中获取令牌
         String token = request.getHeader(jwtProperties.getUserTokenName());
 
-        // 2. 校验令牌
+        // 3. 令牌为空直接拦截
+        if (token == null || token.isBlank()) {
+            log.warn("请求缺少token, URL: {}", requestURI);
+            response.setStatus(401);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"code\":0,\"msg\":\"用户未登录\",\"data\":null}");
+            return false;
+        }
+
+        // 4. 校验令牌
         try {
             log.info("jwt校验:{}", token);
             Claims claims = JwtUtil.parseJWT(jwtProperties.getUserSecretKey(), token);
@@ -42,8 +57,10 @@ public class LoginInterceptor implements HandlerInterceptor {
             UserHolder.setCurrentId(userId);
             return true;
         } catch (Exception ex) {
-            // 不通过，响应 401 状态码
+            log.error("JWT解析失败: {}", ex.getMessage(), ex);
             response.setStatus(401);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"code\":0,\"msg\":\"用户未登录\",\"data\":null}");
             return false;
         }
     }

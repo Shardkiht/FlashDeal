@@ -22,7 +22,7 @@ import java.util.Map;
  * 用户控制器
  */
 @RestController
-@RequestMapping("/user/user")
+@RequestMapping("/user")
 @Slf4j
 @RequiredArgsConstructor
 public class UserController {

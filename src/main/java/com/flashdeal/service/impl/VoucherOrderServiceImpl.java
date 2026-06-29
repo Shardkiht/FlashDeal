@@ -48,8 +48,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Override
     public Result seckillVoucher(Long voucherId) {
+        log.info("秒杀开始, voucherId={}", voucherId);
         Long orderId = redisIdGenerate.generateId(RedisKeyConstant.SECKILLVOUCHER_ORDER);
         Long userId = UserHolder.getCurrentId();
+        log.info("生成订单ID={}, userId={}", orderId, userId);
 
         String stockKey = RedisKeyConstant.getSeckillVoucherStockKey(voucherId);
         String orderKey = RedisKeyConstant.getSeckillVoucherOrderKey(voucherId);
@@ -62,6 +64,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     String.valueOf(userId),
                     String.valueOf(orderId)
             );
+            log.info("Lua脚本执行结果={}, orderId={}", result, orderId);
 
             // 2. 结果判断
             if (result == null || result != 0) {
@@ -82,7 +85,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     .build();
 
             // 4. 同步发送 MQ，失败立即回滚 Redis 库存
+            log.info("开始发送MQ, orderId={}", orderId);
             boolean sent = voucherOrderProducer.sendOrderSync(voucherOrder, 3000);
+            log.info("MQ发送结果={}, orderId={}", sent, orderId);
             if (!sent) {
                 log.warn("MQ发送失败，回滚Redis库存，orderId={}", orderId);
                 stringRedisTemplate.opsForValue().increment(stockKey);
