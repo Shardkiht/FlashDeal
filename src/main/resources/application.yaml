@@ -1,0 +1,35 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: dev
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+
+rocketmq:
+  name-server: localhost:9876
+  producer:
+    group: voucherorder_group
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.flashdeal.domain
+  configuration:
+    map-underscore-to-camel-case: true
+
+logging:
+  level:
+    com:
+      flashdeal:
+        mapper: debug
+        service: info
+        controller: info
+
+flashdeal:
+  jwt:
+    user-ttl: 7200000
+    user-token-name: authentication
