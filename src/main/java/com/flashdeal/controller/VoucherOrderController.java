@@ -30,7 +30,7 @@ public class VoucherOrderController {
     @PostConstruct
     public void initRateLimiter() {
         RRateLimiter limiter = redissonClient.getRateLimiter(LIMITER_KEY);
-        limiter.trySetRate(RateType.OVERALL, 3000, 1, RateIntervalUnit.SECONDS);
+        limiter.trySetRate(RateType.OVERALL, 30000, 1, RateIntervalUnit.SECONDS);
     }
 
     /**
@@ -41,7 +41,7 @@ public class VoucherOrderController {
      */
     @PostMapping("seckill/{id}")
     public Result seckillVoucher(@PathVariable("id") Long voucherId) {
-        // 限流：每秒 3000 个请求
+        // 限流：每秒 30000 个请求
         RRateLimiter limiter = redissonClient.getRateLimiter(LIMITER_KEY);
         if (!limiter.tryAcquire()) {
             return Result.error("当前系统繁忙，请稍后重试");
