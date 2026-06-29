@@ -34,7 +34,7 @@
 | 🚀 **流量整形** | Redisson `RRateLimiter` | 全局限流 3000 req/s，超出直接拒绝，保护后端 |
 | 🔐 **登录鉴权** | JWT + 拦截器 | 无状态认证，Token 有效期 2 小时 |
 | ⚡ **原子预扣** | Redis Lua 脚本 | 库存校验 + 扣减 + 去重三步原子完成，避免竞态 |
-| 🆔 **全局唯一 ID** | Redis INCR + 时间戳 | 64 位 ID = 32 位时间戳 + 32 位序列号，趋势递增 |
+| 🆔 **全局唯一 ID** | Hutool Snowflake | 本地生成、趋势递增、支持分布式（预留 workerId） |
 | 📨 **异步落库** | RocketMQ 同步发送 | Redis 预扣成功后异步写 DB，发送失败自动回滚 Redis |
 | 🔒 **分布式锁** | Redisson `RLock` | 按用户加锁，DB 层兜底防重复下单 |
 | 🛡️ **幂等消费** | Redis `SETNX` | 消费端 24 小时幂等键，防止 MQ 重投导致重复处理 |
