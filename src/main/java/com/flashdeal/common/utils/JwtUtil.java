@@ -1,4 +1,4 @@
-package com.flashdeal.utils;
+package com.flashdeal.common.utils;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;

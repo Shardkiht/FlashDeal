@@ -1,4 +1,4 @@
-package com.flashdeal.utils;
+package com.flashdeal.common.utils;
 
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.script.DefaultRedisScript;

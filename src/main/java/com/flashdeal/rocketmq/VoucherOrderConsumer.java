@@ -1,9 +1,9 @@
 package com.flashdeal.rocketmq;
 
-import com.flashdeal.constant.MessageConstant;
-import com.flashdeal.constant.RedisKeyConstant;
+import com.flashdeal.common.constant.MessageConstant;
+import com.flashdeal.common.constant.RedisKeyConstant;
 import com.flashdeal.domain.VoucherOrder;
-import com.flashdeal.exception.BusinessException;
+import com.flashdeal.common.exception.BusinessException;
 import com.flashdeal.service.IVoucherOrderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

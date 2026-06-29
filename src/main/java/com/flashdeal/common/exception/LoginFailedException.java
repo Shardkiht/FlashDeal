@@ -1,4 +1,4 @@
-package com.flashdeal.exception;
+package com.flashdeal.common.exception;
 
 /**
  * 登录失败异常

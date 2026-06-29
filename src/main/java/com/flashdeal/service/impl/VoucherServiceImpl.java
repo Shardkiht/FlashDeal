@@ -1,7 +1,7 @@
 package com.flashdeal.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.flashdeal.constant.RedisKeyConstant;
+import com.flashdeal.common.constant.RedisKeyConstant;
 import com.flashdeal.domain.SeckillVoucher;
 import com.flashdeal.domain.Voucher;
 import com.flashdeal.mapper.VoucherMapper;

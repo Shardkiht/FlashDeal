@@ -1,4 +1,4 @@
-package com.flashdeal.config;
+package com.flashdeal.common.config;
 
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;

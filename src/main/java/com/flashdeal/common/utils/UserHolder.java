@@ -1,4 +1,4 @@
-package com.flashdeal.utils;
+package com.flashdeal.common.utils;
 
 /**
  * 当前登录用户上下文

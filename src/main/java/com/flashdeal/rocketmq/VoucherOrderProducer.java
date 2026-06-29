@@ -1,7 +1,7 @@
 package com.flashdeal.rocketmq;
 
 import com.alibaba.fastjson.JSON;
-import com.flashdeal.constant.MessageConstant;
+import com.flashdeal.common.constant.MessageConstant;
 import com.flashdeal.domain.VoucherOrder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

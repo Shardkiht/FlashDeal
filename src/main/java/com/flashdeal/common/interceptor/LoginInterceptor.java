@@ -1,9 +1,9 @@
-package com.flashdeal.interceptor;
+package com.flashdeal.common.interceptor;
 
-import com.flashdeal.constant.JwtClaimsConstant;
-import com.flashdeal.properties.JwtProperties;
-import com.flashdeal.utils.JwtUtil;
-import com.flashdeal.utils.UserHolder;
+import com.flashdeal.common.constant.JwtClaimsConstant;
+import com.flashdeal.common.properties.JwtProperties;
+import com.flashdeal.common.utils.JwtUtil;
+import com.flashdeal.common.utils.UserHolder;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;

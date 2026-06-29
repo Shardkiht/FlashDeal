@@ -1,4 +1,4 @@
-package com.flashdeal.constant;
+package com.flashdeal.common.constant;
 
 /**
  * Redis Key 常量

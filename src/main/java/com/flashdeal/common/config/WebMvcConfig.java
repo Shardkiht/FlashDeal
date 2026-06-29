@@ -1,7 +1,7 @@
-package com.flashdeal.config;
+package com.flashdeal.common.config;
 
-import com.flashdeal.interceptor.LoginInterceptor;
-import com.flashdeal.json.JacksonObjectMapper;
+import com.flashdeal.common.interceptor.LoginInterceptor;
+import com.flashdeal.common.json.JacksonObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;

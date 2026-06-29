@@ -1,4 +1,4 @@
-package com.flashdeal.constant;
+package com.flashdeal.common.constant;
 
 /**
  * 信息提示常量类

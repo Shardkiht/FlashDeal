@@ -1,12 +1,12 @@
 package com.flashdeal.controller;
 
-import com.flashdeal.constant.JwtClaimsConstant;
+import com.flashdeal.common.constant.JwtClaimsConstant;
 import com.flashdeal.domain.Result;
 import com.flashdeal.domain.User;
 import com.flashdeal.domain.dto.UserLoginDTO;
-import com.flashdeal.properties.JwtProperties;
+import com.flashdeal.common.properties.JwtProperties;
 import com.flashdeal.service.UserService;
-import com.flashdeal.utils.JwtUtil;
+import com.flashdeal.common.utils.JwtUtil;
 import com.flashdeal.domain.vo.UserLoginVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

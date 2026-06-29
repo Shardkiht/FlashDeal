@@ -1,9 +1,9 @@
 package com.flashdeal.service.impl;
 
-import com.flashdeal.constant.MessageConstant;
+import com.flashdeal.common.constant.MessageConstant;
 import com.flashdeal.domain.User;
 import com.flashdeal.domain.dto.UserLoginDTO;
-import com.flashdeal.exception.LoginFailedException;
+import com.flashdeal.common.exception.LoginFailedException;
 import com.flashdeal.mapper.UserMapper;
 import com.flashdeal.service.UserService;
 import lombok.RequiredArgsConstructor;

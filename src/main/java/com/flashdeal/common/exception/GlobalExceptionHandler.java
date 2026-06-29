@@ -1,4 +1,4 @@
-package com.flashdeal.exception;
+package com.flashdeal.common.exception;
 
 import com.flashdeal.domain.Result;
 import lombok.extern.slf4j.Slf4j;
