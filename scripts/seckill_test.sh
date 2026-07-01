@@ -27,20 +27,14 @@ fi
 
 echo ""
 echo "========================================"
-echo " FlashDeal 秒杀压测工具"
+echo " FlashDeal 秒杀压测"
 echo "========================================"
-echo "目标地址:   $BASE_URL"
-echo "模拟用户:   $USER_COUNT 个"
-echo "并发连接:   $CONCURRENCY"
-echo "持续时间:   $DURATION"
-echo "优惠券ID:   $VOUCHER_ID"
-echo "线程数:     $THREADS"
+echo "用户: $USER_COUNT | 并发: $CONCURRENCY | 时长: $DURATION | 券ID: $VOUCHER_ID"
 echo "========================================"
 echo ""
 
-# Step 1: 获取 Token
-echo " Step 1/2: 获取 $USER_COUNT 个用户 Token..."
-echo "----------------------------------------"
+# Step 1: 获取 Token（静默模式）
+printf "获取 %d 个 Token... " "$USER_COUNT"
 
 > "$TOKEN_FILE"
 
@@ -55,28 +49,13 @@ for i in $(seq 1 "$USER_COUNT"); do
 
     if [ -n "$token" ]; then
         echo "$user_id|$phone|$token" >> "$TOKEN_FILE"
-        printf "\r[%3d/%3d] ✓ %s" "$i" "$USER_COUNT" "$phone"
-    else
-        printf "\r[%3d/%3d] ✗ %s (失败)" "$i" "$USER_COUNT" "$phone"
     fi
 done
 
+echo "✓ 完成"
 echo ""
-echo "✅ Token 获取完成，共 $USER_COUNT 个"
-echo ""
-
-# 检查 Lua 脚本是否存在
-if [ ! -f "$LUA_SCRIPT" ]; then
-    echo "❌ 错误: Lua 脚本不存在: $LUA_SCRIPT"
-    exit 1
-fi
 
 # Step 2: 运行 wrk 压测
-echo "🚀 Step 2/2: 开始 wrk 压测..."
-echo "----------------------------------------"
-echo "命令: wrk -t$THREADS -c$CONCURRENCY -d$DURATION -s $LUA_SCRIPT $BASE_URL/user/voucher-order/seckill/$VOUCHER_ID"
-echo ""
-
 wrk -t"$THREADS" -c"$CONCURRENCY" -d"$DURATION" -s "$LUA_SCRIPT" "$BASE_URL/user/voucher-order/seckill/$VOUCHER_ID"
 
 echo ""
