@@ -44,7 +44,7 @@ public class VoucherOrderController {
         // 限流：每秒 3000 个请求
         RRateLimiter limiter = redissonClient.getRateLimiter(LIMITER_KEY);
         if (!limiter.tryAcquire()) {
-            return Result.error("当前系统繁忙，请稍后重试");
+            return Result.error("RATE_LIMITED");
         }
         return voucherOrderService.seckillVoucher(voucherId);
     }

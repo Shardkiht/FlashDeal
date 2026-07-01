@@ -14,9 +14,9 @@ TOKEN_FILE="$SCRIPT_DIR/tokens.txt"
 LUA_SCRIPT="$SCRIPT_DIR/wrk_seckill_multi_user.lua"
 
 # 参数配置（可自定义）
-USER_COUNT=${1:-100}      # 模拟用户数
-CONCURRENCY=${2:-50}      # 并发连接数
-DURATION=${3:-10s}        # 压测持续时间
+USER_COUNT=${1:-1000}      # 模拟用户数
+CONCURRENCY=${2:-200}      # 并发连接数
+DURATION=${3:-30s}        # 压测持续时间
 VOUCHER_ID=${4:-1}        # 优惠券ID
 
 # 线程数（根据 CPU 核心数自动调整，最多 8）

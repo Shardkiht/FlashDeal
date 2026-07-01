@@ -26,3 +26,36 @@ Transfer/sec:      4.24MB
 ========================================
 🎉 压测完成！
 ========================================
+
+shard@fedora:~/Develop/Code/Projects/Backend/FlashDeal/scripts$ /bin/bash /home/shard/Develop/Code/Projects/Backend/FlashDeal/scripts/single_user_test.sh 100 10s 1
+
+========================================
+ FlashDeal 单用户压测
+========================================
+用户: 6 (13800000001)
+并发: 100 | 时长: 10s | 券ID: 1
+========================================
+
+Running 10s test @ http://localhost:8080/user/voucher-order/seckill/1
+  1 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     6.96ms   20.02ms 245.10ms   97.81%
+    Req/Sec    24.70k     5.02k   30.05k    83.67%
+  241010 requests in 10.01s, 43.66MB read
+Requests/sec:  24082.46
+Transfer/sec:      4.36MB
+
+========================================
+总请求: 241010
+延迟: avg=6.96ms p50=4.49ms p99=126.82ms
+========================================
+
+注意: QPS 请查看上方 wrk 输出的 Requests/sec 字段
+========================================
+
+
+========================================
+✅ 压测完成
+========================================
+
+shard@fedora:~/Develop/Code/Projects/Backend/FlashDeal/scripts$
