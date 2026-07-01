@@ -14,6 +14,7 @@ import com.flashdeal.service.IVoucherOrderService;
 import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.common.utils.UserHolder;
 import io.lettuce.core.RedisCommandTimeoutException;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -42,6 +43,30 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private final RedissonClient redissonClient;
     private final VoucherOrderProducer voucherOrderProducer;
     private final ISeckillVoucherService seckillVoucherService;
+
+    // 初始化秒杀库存到Redis
+    @PostConstruct
+    public void initSeckillStock() {
+        log.info("开始初始化秒杀库存到Redis...");
+        var seckillVouchers = seckillVoucherService.list();
+        
+        for (var voucher : seckillVouchers) {
+            String stockKey = RedisKeyConstant.getSeckillVoucherStockKey(voucher.getVoucherId());
+            String orderKey = RedisKeyConstant.getSeckillVoucherOrderKey(voucher.getVoucherId());
+            
+            // 1. 先清空旧的库存和订单记录
+            stringRedisTemplate.delete(stockKey);
+            stringRedisTemplate.delete(orderKey);
+            
+            // 2. 从数据库读取库存并设置到Redis
+            Long currentStock = stringRedisTemplate.opsForValue().increment(stockKey, voucher.getStock());
+            if (currentStock != null) {
+                log.info("初始化秒杀券ID={}, 库存={}", voucher.getVoucherId(), currentStock);
+            }
+        }
+        
+        log.info("秒杀库存初始化完成，共{}个商品", seckillVouchers.size());
+    }
 
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT =
             LuaScriptUtil.load("lua/seckill.lua", Long.class);
@@ -85,7 +110,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
             // 4. 同步发送 MQ，失败立即回滚 Redis 库存
             log.info("开始发送MQ, orderId={}", orderId);
-            boolean sent = voucherOrderProducer.sendOrderSync(voucherOrder, 3000);
+            boolean sent = voucherOrderProducer.sendOrderSync(voucherOrder, 10000);
             log.info("MQ发送结果={}, orderId={}", sent, orderId);
             if (!sent) {
                 log.warn("MQ发送失败，回滚Redis库存，orderId={}", orderId);
