@@ -1,3 +1,5 @@
+---
+
 <div align="center">
 
 # ⚡ FlashDeal
@@ -10,7 +12,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.16-green.svg)](https://spring.io/projects/spring-boot)
 [![Redis](https://img.shields.io/badge/Redis-7-red.svg)](https://redis.io/)
 [![RocketMQ](https://img.shields.io/badge/RocketMQ-4.9.7-blue.svg)](https://rocketmq.apache.org/)
-[![MyBatis Plus](https://img.shields.io/badge/MyBatis%20Plus-3.5.16-brightgreen.svg)](https://baomidou.com/)
+[![MyBatis Plus](https://img.shields.io/badge/MyBatis%20Plus-3.5.8-brightgreen.svg)](https://baomidou.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
@@ -32,7 +34,7 @@
 | 🚀 **流量整形** | Redisson `RRateLimiter` | 全局限流 3000 req/s，超出直接拒绝，保护后端 |
 | 🔐 **登录鉴权** | JWT + 拦截器 | 无状态认证，Token 有效期 2 小时 |
 | ⚡ **原子预扣** | Redis Lua 脚本 | 库存校验 + 扣减 + 去重三步原子完成，避免竞态 |
-| 🆔 **全局唯一 ID** | Redis INCR + 时间戳 | 64 位 ID = 32 位时间戳 + 32 位序列号，趋势递增 |
+| 🆔 **全局唯一 ID** | Hutool Snowflake | 本地生成、趋势递增、支持分布式（预留 workerId） |
 | 📨 **异步落库** | RocketMQ 同步发送 | Redis 预扣成功后异步写 DB，发送失败自动回滚 Redis |
 | 🔒 **分布式锁** | Redisson `RLock` | 按用户加锁，DB 层兜底防重复下单 |
 | 🛡️ **幂等消费** | Redis `SETNX` | 消费端 24 小时幂等键，防止 MQ 重投导致重复处理 |
@@ -47,13 +49,13 @@
 | :--- | :--- | :--- |
 | **基础框架** | Spring Boot | 3.5.16 |
 | **开发语言** | Java | 17 |
-| **ORM 框架** | MyBatis Plus | 3.5.16 |
+| **ORM 框架** | MyBatis Plus | 3.5.8 |
 | **关系型数据库** | MySQL | 8.0+ |
 | **缓存中间件** | Redis | 7.0+ |
 | **分布式锁/限流** | Redisson | 3.27.0 |
 | **消息队列** | Apache RocketMQ | 4.9.7 |
-| **认证授权** | JJWT | 0.12.6 |
-| **工具库** | Lombok | - |
+| **认证授权** | JWT | 0.12.6 |
+| **工具库** | Lombok | -- |
 
 ---
 
@@ -359,7 +361,7 @@ CREATE TABLE `tb_voucher_order` (
 ```yaml
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/flashdeal?useSSL=false&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://localhost:3306/flashdeal?sslMode=DISABLED&serverTimezone=Asia/Shanghai
     username: root
     password: your_password
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -381,9 +383,9 @@ rocketmq:
 # 启动 Redis
 redis-server --daemonize yes
 
-# 启动 RocketMQ NameServer 与 Broker
-nohup sh mqnamesrv &
-nohup sh mqbroker -n localhost:9876 &
+# 启动 RocketMQ NameServer 与 Broker（需在 RocketMQ 安装目录执行）
+nohup sh bin/mqnamesrv &
+nohup sh bin/mqbroker -n localhost:9876 &
 ```
 
 ### 4. 构建与运行
@@ -453,7 +455,7 @@ Content-Type: application/json
 
 ```http
 POST /user/voucher-order/seckill/{id}
-authentication: <登录返回的 token>
+Authorization: Bearer <登录返回的 token>
 ```
 
 **响应示例：**
@@ -521,14 +523,15 @@ return 0                              -- 成功
 
 ---
 
-## 📊 性能指标（参考）
+## 📊 性能指标
 
 | 指标 | 数值 | 说明 |
 | :--- | :--- | :--- |
 | 单机 QPS | ~3000 | 受限流器配置约束 |
 | 平均响应时间 | < 50ms | Redis 预扣 + MQ 同步发送 |
-| 超卖概率 | 0 | Lua 原子操作 + DB 乐观锁双重保障 |
-| 重复下单概率 | 0 | Redis Set + 分布式锁 + DB 唯一索引 |
+| wrk 压测 | 100 并发，630K+ 请求，P99 < 7ms | 本地 benchmark 参考数据 |
+| 超卖防护 | 理论可完全避免 | Lua 原子操作 + DB 乐观锁双重保障 |
+| 重复下单防护 | 理论可完全避免 | Redis Set + 分布式锁 + DB 唯一索引 |
 
 ---
 
