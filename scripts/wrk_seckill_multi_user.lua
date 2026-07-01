@@ -1,20 +1,31 @@
 -- scripts/wrk_seckill_multi_user.lua
--- 多用户 Token 轮询压测脚本
+-- 多用户 Token 轮询压测脚本（静默版）
 
 local tokens = {}
 local token_count = 0
-local request_counter = 0
+local loaded_once = false
 
 function init(args)
     math.randomseed(os.time())
     wrk.method = "POST"
     wrk.headers["Content-Type"] = "application/json"
-    wrk.body = '{"id":1}'
 
-    -- 每个线程独立加载 tokens
-    local file = io.open("tokens.txt", "r")
+    -- 每个线程独立加载 tokens（支持多种路径）
+    local file_paths = {
+        "scripts/tokens.txt",
+        "tokens.txt",
+        "./tokens.txt"
+    }
+
+    local file = nil
+    for _, path in ipairs(file_paths) do
+        file = io.open(path, "r")
+        if file then
+            break
+        end
+    end
+
     if not file then
-        print("ERROR: tokens.txt not found!")
         return
     end
 
@@ -30,85 +41,39 @@ function init(args)
         end
     end
     file:close()
-
-    print("Thread loaded " .. token_count .. " tokens")
 end
 
+-- 生成请求（使用局部 headers，避免全局竞争）
 function request()
     if token_count == 0 then
-        return wrk.format("POST", nil, {["Content-Type"] = "application/json"}, '{"id":1}')
+        return nil
     end
 
+    -- 随机选择一个用户
     local idx = math.random(1, token_count)
     local user = tokens[idx]
 
-    request_counter = request_counter + 1
-
-    local headers = {
+    -- 构建局部 headers
+    local req_headers = {
         ["Content-Type"] = "application/json",
         ["authentication"] = user.token
     }
 
-    return wrk.format("POST", nil, headers, '{"id":1}')
+    return wrk.format("POST", "/user/voucher-order/seckill/1", req_headers, nil)
 end
 
--- 处理响应（根据 Result.code 判断业务成功/失败）
-function response(status, headers, body)
-    local status_str = tostring(status)
-    local body_str = tostring(body or "")
-
-    -- 调试：打印前 10 个响应
-    if request_counter <= 10 then
-        print("DEBUG #" .. request_counter .. ": status=" .. status_str)
-        if string.find(body_str, "\"code\":1") then
-            print("  → SUCCESS (code=1)")
-        elseif string.find(body_str, "\"code\":0") then
-            if string.find(body_str, "系统繁忙") then
-                print("  → FAIL: 系统繁忙 (code=0)")
-            elseif string.find(body_str, "重复下单") then
-                print("  → FAIL: 重复下单 (code=0)")
-            elseif string.find(body_str, "库存不足") then
-                print("  → FAIL: 库存不足 (code=0)")
-            else
-                print("  → FAIL: 其他错误 (code=0)")
-            end
-        else
-            print("  → FAIL: 无法解析 code")
-        end
-    end
-end
-
--- 压测结束统计
+-- 压测结束统计（简洁版）
 function done(summary, latency, requests)
+    local qps = summary.requests / summary.duration
+    -- latency.mean 单位是微秒，需要除以 1000 转换为毫秒
+    local avg_ms = latency.mean / 1000
+    local p50_ms = latency:percentile(50) / 1000
+    local p99_ms = latency:percentile(99) / 1000
+
     print("\n========================================")
-    print("压测结果统计")
-    print("========================================")
-    print("总请求数:   " .. summary.requests)
-
-    -- 打印 HTTP 状态码分布
-    if summary.status_codes then
-        print("\nHTTP 状态码分布:")
-        for code, count in pairs(summary.status_codes) do
-            print("  " .. code .. ": " .. count)
-        end
-    end
-
-    print("\n延迟统计:")
-    print("平均延迟:   " .. string.format("%.2f", latency.mean) .. "ms")
-    print("P50 延迟:   " .. string.format("%.2f", latency:percentile(50)) .. "ms")
-    print("P95 延迟:   " .. string.format("%.2f", latency:percentile(95)) .. "ms")
-    print("P99 延迟:   " .. string.format("%.2f", latency:percentile(99)) .. "ms")
-    print("\nQPS:        " .. string.format("%.2f", summary.requests / summary.duration) .. "/s")
-    print("========================================")
-    print("")
-    print("业务逻辑验证:")
-    print("  1. Redis 库存: redis-cli -a 865943 GET 'seckill:{1}:stock'")
-    print("     期望值: 0（100张票全部卖出）")
-    print("")
-    print("  2. 已购买用户数: redis-cli -a 865943 SCARD 'seckill:{1}:order'")
-    print("     期望值: 100（100个不同用户）")
-    print("")
-    print("  3. 数据库订单数: mysql -u shard -p865943 sky_take_out -e \"SELECT COUNT(*) FROM tb_voucher_order WHERE voucher_id = 1;\"")
-    print("     期望值: 100")
+    print("总请求: " .. summary.requests .. " | QPS: " .. string.format("%.0f", qps))
+    print("延迟: avg=" .. string.format("%.2f", avg_ms) ..
+          "ms p50=" .. string.format("%.2f", p50_ms) ..
+          "ms p99=" .. string.format("%.2f", p99_ms) .. "ms")
     print("========================================\n")
 end
