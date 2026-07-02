@@ -469,18 +469,44 @@ Authorization: Bearer <登录返回的 token>
 
 **响应示例：**
 
+**成功：**
+
 ```json
-// 成功
-{ "code": 1, "msg": null, "data": 1780001234567890 }
+{
+  "code": 1,
+  "msg": null,
+  "data": 1780001234567890
+}
+```
 
-// 库存不足
-{ "code": 0, "msg": "优惠券已卖完", "data": null }
+**库存不足：**
 
-// 重复下单
-{ "code": 0, "msg": "不能重复下单", "data": null }
+```json
+{
+  "code": 0,
+  "msg": "优惠券已卖完",
+  "data": null
+}
+```
 
-// 限流/系统繁忙
-{ "code": 0, "msg": "当前系统繁忙，请稍后重试", "data": null }
+**重复下单：**
+
+```json
+{
+  "code": 0,
+  "msg": "不能重复下单",
+  "data": null
+}
+```
+
+**限流/系统繁忙：**
+
+```json
+{
+  "code": 0,
+  "msg": "当前系统繁忙，请稍后重试",
+  "data": null
+}
 ```
 
 ---
