@@ -17,18 +17,14 @@ import io.lettuce.core.RedisCommandTimeoutException;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.time.LocalDateTime;
 import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 优惠券订单服务实现类
@@ -40,7 +36,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     private final SnowflakeIdGenerate snowflakeIdGenerate;
     private final StringRedisTemplate stringRedisTemplate;
-    private final RedissonClient redissonClient;
     private final VoucherOrderProducer voucherOrderProducer;
     private final ISeckillVoucherService seckillVoucherService;
 
@@ -49,22 +44,22 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     public void initSeckillStock() {
         log.info("开始初始化秒杀库存到Redis...");
         var seckillVouchers = seckillVoucherService.list();
-        
+
         for (var voucher : seckillVouchers) {
             String stockKey = RedisKeyConstant.getSeckillVoucherStockKey(voucher.getVoucherId());
             String orderKey = RedisKeyConstant.getSeckillVoucherOrderKey(voucher.getVoucherId());
-            
+
             // 1. 先清空旧的库存和订单记录
             stringRedisTemplate.delete(stockKey);
             stringRedisTemplate.delete(orderKey);
-            
+
             // 2. 从数据库读取库存并设置到Redis
             Long currentStock = stringRedisTemplate.opsForValue().increment(stockKey, voucher.getStock());
             if (currentStock != null) {
                 log.info("初始化秒杀券ID={}, 库存={}", voucher.getVoucherId(), currentStock);
             }
         }
-        
+
         log.info("秒杀库存初始化完成，共{}个商品", seckillVouchers.size());
     }
 
@@ -133,40 +128,24 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         Long userId = voucherOrder.getUserId();
         Long voucherId = voucherOrder.getVoucherId();
 
-        RLock lock = redissonClient.getLock(RedisKeyConstant.getVoucherOrderKey(userId));
-        boolean getLock = false;
-        try {
-            getLock = lock.tryLock(1000, 5000, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
-
-        if (!getLock) {
+        // 确保一个用户只能购买一次
+        Long count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+        if (count > 0) {
             log.error(MessageConstant.REPEAT_ORDER);
-            throw new RuntimeException(MessageConstant.REPEAT_ORDER);
+            throw new BusinessException(MessageConstant.REPEAT_ORDER);
         }
 
-        try {
-            // 确保一个用户只能购买一次
-            Long count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
-            if (count > 0) {
-                log.error(MessageConstant.REPEAT_ORDER);
-                throw new BusinessException(MessageConstant.REPEAT_ORDER);
-            }
-
-            // 扣减库存，防止超卖
-            boolean result = seckillVoucherService.update()
-                    .setSql("stock = stock - 1")
-                    .eq("voucher_id", voucherId)
-                    .gt("stock", 0)
-                    .update();
-            if (!result) {
-                log.error(MessageConstant.VOUCHER_STOCK_NOT_ENOUGH);
-                throw new BusinessException(MessageConstant.VOUCHER_STOCK_NOT_ENOUGH);
-            }
-            save(voucherOrder);
-        } finally {
-            lock.unlock();
+        // 扣减库存，防止超卖
+        boolean result = seckillVoucherService.update()
+                .setSql("stock = stock - 1")
+                .eq("voucher_id", voucherId)
+                .gt("stock", 0)
+                .update();
+        if (!result) {
+            log.error(MessageConstant.VOUCHER_STOCK_NOT_ENOUGH);
+            throw new BusinessException(MessageConstant.VOUCHER_STOCK_NOT_ENOUGH);
         }
+        save(voucherOrder);
+
     }
 }
