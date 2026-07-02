@@ -1,4 +1,4 @@
-shard@fedora:~/Develop/Code/Projects/Backend/FlashDeal$ ./scripts/seckill_test.sh 1000 200 30s 1
+seckill_test.sh 1000 200 30s 1
 
 ========================================
  FlashDeal 秒杀压测
@@ -19,7 +19,7 @@ Transfer/sec:      4.24MB
 
 ========================================
 总请求: 705240 | QPS: 0
-延迟: avg=9717.93μs p50=10435.00μs p99=36721.00μs
+延迟: avg=9.72ms p50=10.44ms p99=36.72ms
 ========================================
 
 
@@ -27,7 +27,7 @@ Transfer/sec:      4.24MB
 🎉 压测完成！
 ========================================
 
-shard@fedora:~/Develop/Code/Projects/Backend/FlashDeal/scripts$ /bin/bash /home/shard/Develop/Code/Projects/Backend/FlashDeal/scripts/single_user_test.sh 100 10s 1
+single_user_test.sh 100 10s 1
 
 ========================================
  FlashDeal 单用户压测
@@ -57,5 +57,3 @@ Transfer/sec:      4.36MB
 ========================================
 ✅ 压测完成
 ========================================
-
-shard@fedora:~/Develop/Code/Projects/Backend/FlashDeal/scripts$
