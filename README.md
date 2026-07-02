@@ -34,7 +34,8 @@
 | 🚀 **流量整形** | Redisson `RRateLimiter` | 全局限流 3000 req/s，超出直接拒绝，保护后端 |
 | 🔐 **登录鉴权** | JWT + 拦截器 | 无状态认证，Token 有效期 2 小时 |
 | ⚡ **原子预扣** | Redis Lua 脚本 | 库存校验 + 扣减 + 去重三步原子完成，避免竞态 |
-| 🆔 **全局唯一 ID** | Hutool Snowflake | 本地生成、趋势递增、支持分布式（预留 workerId） |
+| 🆔 **全局唯一 ID** | Hutool Snowflake | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式 |
+| 🗄️ **库存预热** | `@PostConstruct` 自动加载 | 应用启动时自动将 DB 秒杀库存同步到 Redis |
 | 📨 **异步落库** | RocketMQ 同步发送 | Redis 预扣成功后异步写 DB，发送失败自动回滚 Redis |
 | 🔒 **分布式锁** | Redisson `RLock` | 按用户加锁，DB 层兜底防重复下单 |
 | 🛡️ **幂等消费** | Redis `SETNX` | 消费端 24 小时幂等键，防止 MQ 重投导致重复处理 |
@@ -49,13 +50,13 @@
 | :--- | :--- | :--- |
 | **基础框架** | Spring Boot | 3.5.16 |
 | **开发语言** | Java | 17 |
-| **ORM 框架** | MyBatis Plus | 3.5.8 |
+| **ORM 框架** | MyBatis Plus | 3.5.16 |
 | **关系型数据库** | MySQL | 8.0+ |
 | **缓存中间件** | Redis | 7.0+ |
 | **分布式锁/限流** | Redisson | 3.27.0 |
 | **消息队列** | Apache RocketMQ | 4.9.7 |
 | **认证授权** | JWT | 0.12.6 |
-| **工具库** | Lombok | -- |
+| **工具库** | Hutool / Lombok | 5.8.34 / -- |
 
 ---
 
@@ -77,7 +78,7 @@ flowchart TB
     subgraph App["应用层 Spring Boot"]
         CTRL["VoucherOrderController"]
         SVC["VoucherOrderServiceImpl"]
-        IDG["RedisIdGenerate<br/>全局唯一 ID"]
+        IDG["SnowflakeIdGenerate<br/>全局唯一 ID"]
         PROD["VoucherOrderProducer"]
         CONS["VoucherOrderConsumer"]
         LOCK["Redisson 分布式锁"]
@@ -87,7 +88,7 @@ flowchart TB
         STOCK[("seckill:{id}:stock<br/>库存")]
         ORDER[("seckill:{id}:order<br/>已购用户 Set")]
         IDEM[("seckill:consumed:orderId<br/>幂等键")]
-        IDSEQ[("icr:order:timestamp<br/>ID 序列号")]
+
         LUA["Lua 脚本<br/>原子预扣"]
     end
 
@@ -106,7 +107,7 @@ flowchart TB
     LI -->|无 Token/失效| UNAUTH["401 未登录"]
     CTRL --> SVC
     SVC --> IDG
-    IDG --> IDSEQ
+
     SVC -->|执行| LUA
     LUA --> STOCK
     LUA --> ORDER
@@ -139,7 +140,7 @@ flowchart TD
     LIMIT -->|被限流| R1[返回: 系统繁忙]
     LIMIT -->|放行| AUTH{JWT 校验}
     AUTH -->|未登录| R2[返回: 401 未登录]
-    AUTH -->|已登录| GEN[生成全局唯一订单 ID<br/>RedisIdGenerate]
+    AUTH -->|已登录| GEN[生成全局唯一订单 ID<br/>Snowflake]
 
     GEN --> LUA[执行 Lua 脚本<br/>原子操作]
     LUA --> CHECK1{库存 > 0?}
@@ -149,7 +150,7 @@ flowchart TD
     CHECK2 -->|否| DECR[扣减 Redis 库存<br/>记录用户到 Set<br/>Lua 返回 0]
 
     DECR --> BUILD[构建订单对象<br/>VoucherOrder]
-    BUILD --> MQ{同步发送 RocketMQ<br/>超时 3s}
+    BUILD --> MQ{同步发送 RocketMQ<br/>超时 10s}
     MQ -->|发送成功| OK[返回: 订单 ID<br/>秒杀成功]
     MQ -->|发送失败| ROLLBACK[回滚 Redis<br/>库存 +1<br/>移除用户 Set]
     ROLLBACK --> R5[返回: 系统繁忙<br/>请稍后重试]
@@ -218,13 +219,19 @@ flowchart TD
 ```
 FlashDeal
 ├── pom.xml                                      # Maven 依赖与构建配置
+├── scripts/                                     # 压测脚本
+│   ├── seckill_test.sh                          # wrk 秒杀压测主脚本
+│   ├── single_user_test.sh                      # 单用户压测脚本
+│   ├── wrk_seckill_multi_user.lua               # wrk Lua 压测脚本
+│   ├── testData.txt                             # 测试数据
+│   └── tokens.txt                               # 用户 Token 文件
 ├── src
 │   ├── main
 │   │   ├── java/com/flashdeal
 │   │   │   ├── FlashDealApplication.java        # 启动类
 │   │   │   ├── controller/                      # 控制层
 │   │   │   │   ├── UserController.java          # 用户登录
-│   │   │   │   ├── VoucherOrderController.java  # 秒杀下单入口
+│   │   │   │   ├── VoucherOrderController.java  # 秒杀下单入口（限流）
 │   │   │   │   └── TestController.java          # 测试: 添加秒杀券
 │   │   │   ├── service/                         # 服务层
 │   │   │   │   ├── UserService.java
@@ -252,7 +259,7 @@ FlashDeal
 │   │   │   └── common/                          # 公共组件
 │   │   │       ├── config/                      # 配置类
 │   │   │       │   ├── RedisConfig.java
-│   │   │       │   ├── RedissonConfig.java
+│   │   │       │   ├── RedissonConfig.java      # Redis 密码从配置读取
 │   │   │       │   ├── MybatisPlusConfig.java
 │   │   │       │   └── WebMvcConfig.java        # 拦截器+消息转换器
 │   │   │       ├── constant/                    # 常量
@@ -268,13 +275,14 @@ FlashDeal
 │   │   │       │   └── LoginInterceptor.java
 │   │   │       ├── utils/                       # 工具类
 │   │   │       │   ├── JwtUtil.java
-│   │   │       │   ├── RedisIdGenerate.java     # 全局唯一 ID 生成器
+│   │   │       │   ├── SnowflakeIdGenerate.java # 雪花算法全局唯一 ID
 │   │   │       │   ├── LuaScriptUtil.java       # Lua 脚本加载器
 │   │   │       │   └── UserHolder.java          # ThreadLocal 用户上下文
 │   │   │       ├── properties/JwtProperties.java
 │   │   │       └── json/JacksonObjectMapper.java
 │   │   └── resources/
 │   │       ├── application.yaml                 # 应用配置
+│   │       ├── application-dev.yaml               # 开发环境配置
 │   │       ├── mapper/UserMapper.xml
 │   │       └── lua/seckill.lua                  # ⭐ 秒杀 Lua 脚本
 │   └── test/java/com/flashdeal/FlashDealApplicationTests.java
@@ -356,7 +364,7 @@ CREATE TABLE `tb_voucher_order` (
 
 ### 2. 修改配置
 
-编辑 `src/main/resources/application.yaml`，按实际环境调整 MySQL、Redis、RocketMQ 地址：
+编辑 `src/main/resources/application-dev.yaml`，按实际环境调整 MySQL、Redis、RocketMQ 地址：
 
 ```yaml
 spring:
@@ -370,6 +378,7 @@ spring:
       host: localhost
       port: 6379
       database: 0
+      # password: your_password  # 如 Redis 有密码请取消注释
 
 rocketmq:
   name-server: localhost:9876
@@ -410,7 +419,7 @@ mvn spring-boot:run
 ### 用户登录
 
 ```http
-POST /user/user/login
+POST /user/login
 Content-Type: application/json
 
 {
@@ -497,14 +506,17 @@ return 0                              -- 成功
 
 ### 2. 全局唯一订单 ID
 
-订单 ID 不能用 MySQL 自增（分库分表场景会冲突），也不能用 UUID（无序，影响 B+ 树插入性能）。本项目采用 **时间戳 + 序列号** 的 64 位 ID 方案：
+订单 ID 不能用 MySQL 自增（分库分表场景会冲突），也不能用 UUID（无序，影响 B+ 树插入性能）。本项目采用 **Hutool Snowflake 雪花算法**：
 
 ```
-|  32 bit 时间戳  |  32 bit 自增序列号  |
+|  1 bit 符号位  |  41 bit 时间戳  |  10 bit 机器 ID  |  12 bit 序列号  |
 ```
 
-- 高 32 位：当前时间距基准时间（2026-01-01）的秒数，趋势递增
-- 低 32 位：Redis `INCR` 同一秒内的自增序号
+- 41 位时间戳：毫秒级，可用约 69 年
+- 10 位机器 ID：支持 1024 个节点（单机部署写死 0，分布式场景从配置中心读取）
+- 12 位序列号：同一毫秒内最多生成 4096 个 ID
+
+趋势递增、本地生成、性能极高，天然适合高并发订单号场景。
 
 ### 3. Redis 与 DB 最终一致性
 
@@ -514,6 +526,7 @@ return 0                              -- 成功
 - **消费端幂等**：`SETNX` 24 小时幂等键，防止 MQ 重投
 - **分布式锁兜底**：按用户加锁，DB 层再次校验防重复
 - **业务异常回滚**：消费失败时回滚 Redis 库存，保证不"少卖"
+- **Redis 熔断保护**：Redis 连接异常时直接返回"系统繁忙"，避免雪崩
 
 ### 4. 分层限流防雪崩
 
@@ -535,6 +548,28 @@ return 0                              -- 成功
 
 ---
 
+## 🧪 压测脚本
+
+项目内置 `wrk` 压测脚本，位于 `scripts/` 目录：
+
+```bash
+# 进入脚本目录
+cd scripts/
+
+# 给脚本添加执行权限
+chmod +x seckill_test.sh single_user_test.sh
+
+# 执行多用户秒杀压测（需先准备 tokens.txt）
+./seckill_test.sh
+```
+
+压测脚本会自动：
+1. 从 `tokens.txt` 读取用户 Token
+2. 使用 `wrk` 多线程并发请求秒杀接口
+3. 输出压测统计结果（QPS、延迟分布等）
+
+---
+
 ## 🗺️ 路线图
 
 - [x] 用户登录与 JWT 鉴权
@@ -543,7 +578,7 @@ return 0                              -- 成功
 - [x] RocketMQ 异步落库
 - [x] 分布式锁防重复
 - [x] 失败补偿与回滚
-- [ ] 接口压测脚本（JMeter）
+- [x] 接口压测脚本（wrk）
 - [ ] Docker Compose 一键部署
 - [ ] Prometheus + Grafana 监控
 - [ ] 秒杀券预热与活动管理后台
