@@ -39,7 +39,7 @@ shard@fedora:~/Develop/Code/Projects/Backend/FlashDeal/scripts$ /bin/bash /home/
 Running 10s test @ http://localhost:8080/user/voucher-order/seckill/1
   1 threads and 100 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     6.96ms   20.02ms 245.10ms   97.81%
+    Latency     5.96ms   20.02ms 245.10ms   97.81%
     Req/Sec    24.70k     5.02k   30.05k    83.67%
   241010 requests in 10.01s, 43.66MB read
 Requests/sec:  24082.46
