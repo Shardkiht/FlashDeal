@@ -23,6 +23,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 
@@ -39,7 +40,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private final VoucherOrderProducer voucherOrderProducer;
     private final ISeckillVoucherService seckillVoucherService;
 
-    // 初始化秒杀库存到Redis
+    // 初始化秒杀库存到Redis，仅测试时使用
     @PostConstruct
     public void initSeckillStock() {
         log.info("开始初始化秒杀库存到Redis...");
@@ -67,13 +68,14 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             LuaScriptUtil.load("lua/seckill.lua", Long.class);
 
     @Override
-    public Result<Long> seckillVoucher(Long voucherId) {
+    public Result<String> seckillVoucher(Long voucherId) {
         Long orderId = snowflakeIdGenerate.nextId();
         Long userId = UserHolder.getCurrentId();
         log.info("生成订单ID={}, userId={}", orderId, userId);
 
         String stockKey = RedisKeyConstant.getSeckillVoucherStockKey(voucherId);
         String orderKey = RedisKeyConstant.getSeckillVoucherOrderKey(voucherId);
+        String idempotencyKey = RedisKeyConstant.getConsumedKey(orderId);
 
         try {
             // 1. 执行 Lua 脚本判断购买资格并预扣减 Redis 库存
@@ -103,7 +105,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     .updateTime(LocalDateTime.now())
                     .build();
 
-            // 4. 同步发送 MQ，失败立即回滚 Redis 库存
+            // 4. MQ发送前先标记 PROCESSING，让用户及时感知这个订单正在处理
+            stringRedisTemplate.opsForValue().set(idempotencyKey, "PROCESSING", Duration.ofHours(24));
+
+            // 5. 同步发送 MQ，失败立即回滚 Redis 库存
             log.info("开始发送MQ, orderId={}", orderId);
             boolean sent = voucherOrderProducer.sendOrderSync(voucherOrder, 10000);
             log.info("MQ发送结果={}, orderId={}", sent, orderId);
@@ -111,10 +116,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 log.warn("MQ发送失败，回滚Redis库存，orderId={}", orderId);
                 stringRedisTemplate.opsForValue().increment(stockKey);
                 stringRedisTemplate.opsForSet().remove(orderKey, String.valueOf(userId));
+                stringRedisTemplate.delete(idempotencyKey); // 发送失败，清掉状态
                 return Result.error("当前系统繁忙，请稍后重试");
             }
 
-            return Result.success(orderId);
+            // 返回"处理中"，前端轮询用户最近的秒杀订单状态
+            return Result.success("处理中");
 
         } catch (RedisConnectionFailureException | RedisCommandTimeoutException | RedisSystemException e) {
             log.error("Redis 异常降级，voucherId={}, userId={}", voucherId, userId, e);

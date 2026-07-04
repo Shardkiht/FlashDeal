@@ -38,9 +38,9 @@
 | 🗄️ **库存预热** | `@PostConstruct` 自动加载 | 应用启动时自动将 DB 秒杀库存同步到 Redis |
 | 📨 **异步落库** | RocketMQ 同步发送 | Redis 预扣成功后异步写 DB，发送失败自动回滚 Redis |
 | 🔒 **DB 乐观锁** | `WHERE stock > 0` | 数据库层兜底，防止超卖与重复下单 |
-| 🛡️ **幂等消费** | Redis `SETNX` | 消费端 24 小时幂等键，防止 MQ 重投导致重复处理 |
+| 🛡️ **三态幂等** | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询 |
 | 💥 **超卖防御** | DB 乐观锁 `stock > 0` | `UPDATE ... SET stock = stock - 1 WHERE stock > 0` |
-| 🔄 **失败补偿** | Redis 回滚 + 失败队列 | MQ 发送失败 / 消费业务异常时自动回滚库存 |
+| 🔄 **失败补偿** | Redis 回滚 + 结构化留痕 | MQ 发送失败 / 消费业务异常时自动回滚库存，失败记录便于人工核查 |
 
 ---
 
@@ -86,7 +86,7 @@ flowchart TB
     subgraph Cache["缓存层 Redis"]
         STOCK[("seckill:{id}:stock<br/>库存")]
         ORDER[("seckill:{id}:order<br/>已购用户 Set")]
-        IDEM[("seckill:consumed:orderId<br/>幂等键")]
+        IDEM[("seckill:{orderId}:consumed<br/>三态幂等键")]
 
         LUA["Lua 脚本<br/>原子预扣"]
     end
@@ -149,9 +149,10 @@ flowchart TD
     CHECK2 -->|否| DECR[扣减 Redis 库存<br/>记录用户到 Set<br/>Lua 返回 0]
 
     DECR --> BUILD[构建订单对象<br/>VoucherOrder]
-    BUILD --> MQ{同步发送 RocketMQ<br/>超时 10s}
-    MQ -->|发送成功| OK[返回: 订单 ID<br/>秒杀成功]
-    MQ -->|发送失败| ROLLBACK[回滚 Redis<br/>库存 +1<br/>移除用户 Set]
+    BUILD --> MARK[标记 PROCESSING<br/>写入三态幂等键]
+    MARK --> MQ{同步发送 RocketMQ<br/>超时 10s}
+    MQ -->|发送成功| OK[返回: 处理中<br/>前端轮询状态]
+    MQ -->|发送失败| ROLLBACK[回滚 Redis<br/>库存 +1<br/>移除用户 Set<br/>清除幂等键]
     ROLLBACK --> R5[返回: 系统繁忙<br/>请稍后重试]
 
     style START fill:#6a1b9a,color:#fff
@@ -174,37 +175,34 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    MSG([收到 MQ 订单消息]) --> IDEM{幂等校验<br/>SETNX 24h}
-    IDEM -->|已处理过| SKIP[跳过, 直接 ACK]
-    IDEM -->|首次处理| DBCHECK{DB 查询<br/>用户是否已下单}
+    MSG([收到 MQ 订单消息]) --> STATUS{读取幂等键状态}
+    STATUS -->|SUCCESS/FAILED| SKIP[已是终态, 跳过]
+    STATUS -->|PROCESSING/不存在| CREATE[创建订单<br/>createVoucherOrder]
 
-    DBCHECK -->|已下单| BIZEX[业务异常<br/>不能重复下单]
-    DBCHECK -->|未下单| DBSTOCK{DB 扣减库存<br/>WHERE stock > 0}
+    CREATE --> DBSAVE{DB 操作}
+    DBSAVE -->|成功| MARK[标记 SUCCESS]
+    MARK --> DONE([消费完成])
 
-    DBSTOCK -->|扣减失败| BIZEX2[业务异常<br/>库存不足]
-    DBSTOCK -->|扣减成功| SAVE[保存订单到 DB]
-    SAVE --> DONE([消费完成])
-
-    BIZEX --> RBSTOCK[回滚 Redis 库存 +1]
-    BIZEX2 --> RBSTOCK
+    DBSAVE -->|业务异常| CHECK{查 DB<br/>订单是否落库}
+    CHECK -->|已落库| MARK2[标记 SUCCESS<br/>不回滚]
+    MARK2 --> DONE
+    CHECK -->|未落库| RBSTOCK[回滚 Redis 库存 +1]
     RBSTOCK --> RBUSER[移除用户 Set]
-    RBUSER --> DELIDEM[删除幂等键]
-    DELIDEM --> LOG[日志记录失败原因]
-    LOG --> DONE
+    RBUSER --> MARKFAIL[标记 FAILED]
+    MARKFAIL --> RECORD[SeckillFailRecord<br/>结构化留痕]
+    RECORD --> DONE
 
-    SAVE -->|系统异常| THROW1[抛出异常<br/>触发 MQ 重试]
+    DBSAVE -->|系统异常| THROW1[抛出异常<br/>触发 MQ 重试]
     THROW1 --> RETRY{{MQ 自动重试<br/>最多 3 次}}
     RETRY -->|重试耗尽| DLQ[进入死信队列<br/>人工介入]
 
     style MSG fill:#6a1b9a,color:#fff
     style DONE fill:#2e7d32,color:#fff
     style SKIP fill:#f9a825,color:#212121
-    style BIZEX fill:#b71c1c,color:#fff
-    style BIZEX2 fill:#b71c1c,color:#fff
     style THROW1 fill:#b71c1c,color:#fff
     style DLQ fill:#b71c1c,color:#fff
     style RBSTOCK fill:#e65100,color:#fff
-    style SAVE fill:#1565c0,color:#fff
+    style DBSAVE fill:#1565c0,color:#fff
 ```
 
 ---
@@ -226,7 +224,7 @@ FlashDeal
 │   │   │   ├── FlashDealApplication.java        # 启动类
 │   │   │   ├── controller/                      # 控制层
 │   │   │   │   ├── UserController.java          # 用户登录
-│   │   │   │   ├── VoucherOrderController.java  # 秒杀下单入口
+│   │   │   │   ├── VoucherOrderController.java  # 秒杀下单+状态查询入口
 │   │   │   │   └── TestController.java          # 测试: 添加秒杀券
 │   │   │   ├── service/                         # 服务层
 │   │   │   │   ├── UserService.java
@@ -241,7 +239,7 @@ FlashDeal
 │   │   │   ├── rocketmq/                        # MQ 生产/消费
 │   │   │   │   ├── VoucherOrderProducer.java    # 同步发送（补偿队列方法预留未启用）
 │   │   │   │   ├── VoucherOrderConsumer.java    # 幂等消费+失败回滚
-│   │   │   │   └── SeckillFailRecord.java       # 失败记录实体
+│   │   │   │   └── SeckillFailRecord.java       # 失败核查记录实体
 │   │   │   ├── mapper/                          # MyBatis Plus Mapper
 │   │   │   ├── domain/                          # 实体与 DTO/VO
 │   │   │   │   ├── User.java
@@ -465,15 +463,43 @@ Authorization: Bearer <登录返回的 token>
 
 **响应示例：**
 
-**成功：**
+**成功（异步处理中）：**
 
 ```json
 {
   "code": 1,
   "msg": null,
-  "data": 1780001234567890
+  "data": "处理中"
 }
 ```
+
+> 秒杀接口返回"处理中"后，前端通过状态查询接口轮询最终结果。
+
+### 查询秒杀订单状态
+
+```http
+GET /user/voucher-order/seckill/status/{orderId}
+Authorization: Bearer <登录返回的 token>
+```
+
+**响应示例：**
+
+```json
+{
+  "code": 1,
+  "msg": null,
+  "data": "SUCCESS"
+}
+```
+
+**状态说明：**
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `PROCESSING` | 订单正在处理中 |
+| `SUCCESS` | 订单创建成功 |
+| `FAILED` | 订单创建失败（已回滚库存） |
+| `UNKNOWN` | 订单不存在或状态已过期 |
 
 **库存不足：**
 
@@ -544,10 +570,12 @@ return 0                              -- 成功
 
 系统采用"**Redis 预扣 + MQ 异步落库**"模式，Redis 是库存的"快"视图，DB 是"真"数据源。一致性保障措施：
 
-- **MQ 同步发送**：发送成功才返回用户成功，发送失败立即回滚 Redis
-- **消费端幂等**：`SETNX` 24 小时幂等键，防止 MQ 重投
+- **MQ 同步发送**：发送成功才返回"处理中"，发送失败立即回滚 Redis 并清除幂等键
+- **三态幂等**：`PROCESSING/SUCCESS/FAILED` 三态设计，支持 MQ 重试与前端状态轮询
+- **终态判断**：消费端读取幂等键状态，只有终态（SUCCESS/FAILED）才跳过，PROCESSING 继续处理
 - **DB 乐观锁兜底**：`WHERE stock > 0` 防止超卖，DB 层再次校验防重复
-- **业务异常回滚**：消费失败时回滚 Redis 库存，保证不"少卖"
+- **业务异常分级**：确定性失败（BusinessException）直接终结并回滚；偶发性失败抛出让 MQ 重试
+- **订单落库检查**：`handleFail` 先查 DB 确认订单状态，已落库则不回滚，未落库才回滚库存
 - **Redis 异常降级**：Redis 连接异常时直接返回"系统繁忙"，避免请求堆积压垮 DB
 
 ### 4. 分层防御体系
@@ -599,7 +627,9 @@ chmod +x seckill_test.sh single_user_test.sh
 - [x] Redis Lua 原子预扣
 - [x] RocketMQ 异步落库
 - [x] DB 乐观锁防重复
+- [x] 三态幂等与状态查询接口
 - [x] 失败补偿与回滚
+- [x] 结构化失败留痕（SeckillFailRecord）
 - [x] 接口压测脚本（wrk）
 - [ ] Docker Compose 一键部署
 - [ ] Prometheus + Grafana 监控

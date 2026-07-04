@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.*;
 import lombok.experimental.Accessors;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
@@ -21,6 +22,7 @@ import java.time.LocalDateTime;
 @TableName("tb_voucher_order")
 public class VoucherOrder implements Serializable {
 
+    @Serial
     private static final long serialVersionUID = 1L;
 
     /**
