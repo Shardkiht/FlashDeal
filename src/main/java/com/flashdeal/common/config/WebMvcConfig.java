@@ -1,6 +1,7 @@
 package com.flashdeal.common.config;
 
 import com.flashdeal.common.interceptor.LoginInterceptor;
+import com.flashdeal.common.interceptor.RateLimitInterceptor;
 import com.flashdeal.common.json.JacksonObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,12 +23,21 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Autowired
     private LoginInterceptor loginInterceptor;
 
+    @Autowired
+    private RateLimitInterceptor rateLimitInterceptor;
+
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        log.info("开始注册自定义拦截器...");
+        log.info("开始注册拦截器...");
+        // 1. 限流拦截器（最先执行，保护后端）
+        registry.addInterceptor(rateLimitInterceptor)
+                .addPathPatterns("/user/**")
+                .order(0);
+        // 2. JWT 登录拦截器（限流之后执行）
         registry.addInterceptor(loginInterceptor)
                 .addPathPatterns("/user/**")
-                .excludePathPatterns("/user/user/login");
+                .excludePathPatterns("/user/user/login")
+                .order(1);
     }
 
     /**

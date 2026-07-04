@@ -226,7 +226,7 @@ FlashDeal
 │   │   │   ├── FlashDealApplication.java        # 启动类
 │   │   │   ├── controller/                      # 控制层
 │   │   │   │   ├── UserController.java          # 用户登录
-│   │   │   │   ├── VoucherOrderController.java  # 秒杀下单入口（限流）
+│   │   │   │   ├── VoucherOrderController.java  # 秒杀下单入口
 │   │   │   │   └── TestController.java          # 测试: 添加秒杀券
 │   │   │   ├── service/                         # 服务层
 │   │   │   │   ├── UserService.java
@@ -266,8 +266,9 @@ FlashDeal
 │   │   │       │   ├── BusinessException.java
 │   │   │       │   ├── LoginFailedException.java
 │   │   │       │   └── GlobalExceptionHandler.java
-│   │   │       ├── interceptor/                 # JWT 登录拦截器
-│   │   │       │   └── LoginInterceptor.java
+│   │   │       ├── interceptor/                 # 拦截器
+│   │   │       │   ├── RateLimitInterceptor.java # 限流拦截器（最先执行）
+│   │   │       │   └── LoginInterceptor.java     # JWT 登录拦截器
 │   │   │       ├── utils/                       # 工具类
 │   │   │       │   ├── JwtUtil.java
 │   │   │       │   ├── SnowflakeIdGenerate.java # 雪花算法全局唯一 ID

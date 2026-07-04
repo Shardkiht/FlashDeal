@@ -3,16 +3,10 @@ package com.flashdeal.controller;
 import com.flashdeal.domain.Result;
 import com.flashdeal.service.IVoucherOrderService;
 import lombok.RequiredArgsConstructor;
-import org.redisson.api.RRateLimiter;
-import org.redisson.api.RateIntervalUnit;
-import org.redisson.api.RateType;
-import org.redisson.api.RedissonClient;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import jakarta.annotation.PostConstruct;
 
 /**
  * 优惠券订单/秒杀控制器
@@ -23,15 +17,6 @@ import jakarta.annotation.PostConstruct;
 public class VoucherOrderController {
 
     private final IVoucherOrderService voucherOrderService;
-    private final RedissonClient redissonClient;
-
-    private static final String LIMITER_KEY = "seckill:limiter";
-
-    @PostConstruct
-    public void initRateLimiter() {
-        RRateLimiter limiter = redissonClient.getRateLimiter(LIMITER_KEY);
-        limiter.trySetRate(RateType.OVERALL, 3000, 1, RateIntervalUnit.SECONDS);
-    }
 
     /**
      * 秒杀优惠券购买
@@ -41,11 +26,6 @@ public class VoucherOrderController {
      */
     @PostMapping("seckill/{id}")
     public Result seckillVoucher(@PathVariable("id") Long voucherId) {
-        // 限流：每秒 3000 个请求
-        RRateLimiter limiter = redissonClient.getRateLimiter(LIMITER_KEY);
-        if (!limiter.tryAcquire()) {
-            return Result.error("RATE_LIMITED");
-        }
         return voucherOrderService.seckillVoucher(voucherId);
     }
 }
