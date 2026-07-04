@@ -120,12 +120,12 @@ flowchart TB
     LOCK -->|加锁| MYSQL
     MYSQL -->|stock=stock-1<br/>WHERE stock>0| MYSQL
 
-    style RL fill:#ffe0b2
-    style LUA fill:#c8e6c9
-    style TOPIC fill:#bbdefb
-    style MYSQL fill:#f8bbd0
-    style REJ fill:#ffcdd2
-    style UNAUTH fill:#ffcdd2
+    style RL fill:#e65100,color:#fff
+    style LUA fill:#2e7d32,color:#fff
+    style TOPIC fill:#1565c0,color:#fff
+    style MYSQL fill:#c62828,color:#fff
+    style REJ fill:#b71c1c,color:#fff
+    style UNAUTH fill:#b71c1c,color:#fff
 ```
 
 ---
@@ -155,16 +155,16 @@ flowchart TD
     MQ -->|发送失败| ROLLBACK[回滚 Redis<br/>库存 +1<br/>移除用户 Set]
     ROLLBACK --> R5[返回: 系统繁忙<br/>请稍后重试]
 
-    style START fill:#e1bee7
-    style OK fill:#c8e6c9
-    style R1 fill:#ffcdd2
-    style R2 fill:#ffcdd2
-    style R3 fill:#ffcdd2
-    style R4 fill:#ffcdd2
-    style R5 fill:#ffcdd2
-    style LUA fill:#fff9c4
-    style DECR fill:#bbdefb
-    style ROLLBACK fill:#ffe0b2
+    style START fill:#6a1b9a,color:#fff
+    style OK fill:#2e7d32,color:#fff
+    style R1 fill:#b71c1c,color:#fff
+    style R2 fill:#b71c1c,color:#fff
+    style R3 fill:#b71c1c,color:#fff
+    style R4 fill:#b71c1c,color:#fff
+    style R5 fill:#b71c1c,color:#fff
+    style LUA fill:#f9a825,color:#212121
+    style DECR fill:#1565c0,color:#fff
+    style ROLLBACK fill:#e65100,color:#fff
 ```
 
 ---
@@ -201,15 +201,15 @@ flowchart TD
     THROW1 --> RETRY{{MQ 自动重试<br/>最多 3 次}}
     RETRY -->|重试耗尽| DLQ[进入死信队列<br/>人工介入]
 
-    style MSG fill:#e1bee7
-    style DONE fill:#c8e6c9
-    style SKIP fill:#fff9c4
-    style BIZEX fill:#ffcdd2
-    style BIZEX2 fill:#ffcdd2
-    style THROW1 fill:#ffcdd2
-    style DLQ fill:#ef9a9a
-    style RBSTOCK fill:#ffe0b2
-    style SAVE fill:#bbdefb
+    style MSG fill:#6a1b9a,color:#fff
+    style DONE fill:#2e7d32,color:#fff
+    style SKIP fill:#f9a825,color:#212121
+    style BIZEX fill:#b71c1c,color:#fff
+    style BIZEX2 fill:#b71c1c,color:#fff
+    style THROW1 fill:#b71c1c,color:#fff
+    style DLQ fill:#b71c1c,color:#fff
+    style RBSTOCK fill:#e65100,color:#fff
+    style SAVE fill:#1565c0,color:#fff
 ```
 
 ---
