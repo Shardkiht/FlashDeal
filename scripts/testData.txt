@@ -1,4 +1,4 @@
-seckill_test.sh 1000 200 30s 1
+shard@fedora:~/Develop/Code/Projects/Backend/FlashDeal/scripts$ /bin/bash /home/shard/Develop/Code/Projects/Backend/FlashDeal/scripts/seckill_test.sh
 
 ========================================
  FlashDeal 秒杀压测
@@ -11,15 +11,16 @@ seckill_test.sh 1000 200 30s 1
 Running 30s test @ http://localhost:8080/user/voucher-order/seckill/1
   8 threads and 200 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     9.72ms    9.29ms 184.84ms   85.91%
-    Req/Sec     2.96k   494.48     6.02k    73.28%
-  705240 requests in 30.10s, 127.71MB read
-Requests/sec:  23429.85
-Transfer/sec:      4.24MB
+    Latency     9.75ms    8.94ms 210.92ms   65.25%
+    Req/Sec     2.91k   488.27     4.35k    77.14%
+  696014 requests in 30.10s, 112.16MB read
+Requests/sec:  23123.70
+Transfer/sec:      3.73MB
 
 ========================================
-总请求: 705240 | QPS: 0
-延迟: avg=9.72ms p50=10.44ms p99=36.72ms
+总请求: 696014 | QPS: 0
+限流拦截: 605691 (87.02%)
+延迟: avg=9.75ms p50=11.01ms p99=35.59ms
 ========================================
 
 

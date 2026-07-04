@@ -31,7 +31,7 @@
 
 | 特性 | 实现方式 | 说明 |
 | :--- | :--- | :--- |
-| 🚀 **流量整形** | Redisson `RRateLimiter` | 全局限流 3000 req/s，超出直接拒绝，保护后端 |
+| 🚀 **流量整形** | Redisson `RRateLimiter` | 全局限流 3000 req/s，超出直接拒绝，压测中拦截 87% 请求 |
 | 🔐 **登录鉴权** | JWT + 拦截器 | 无状态认证，Token 有效期 2 小时 |
 | ⚡ **原子预扣** | Redis Lua 脚本 | 库存校验 + 扣减 + 去重三步原子完成，避免竞态 |
 | 🆔 **全局唯一 ID** | Hutool Snowflake | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式 |
@@ -112,7 +112,8 @@ flowchart TB
     LUA --> ORDER
     SVC -->|预扣成功| PROD
     PROD -->|同步发送| TOPIC
-    PROD -.->|发送失败| STOCK
+    PROD -.->|发送失败| RB[回滚库存<br/>移除用户 Set]
+    RB --> STOCK
     TOPIC --> CONS
     CONS -->|幂等校验| IDEM
     CONS -->|DB 操作| MYSQL
@@ -184,12 +185,11 @@ flowchart TD
     DBSTOCK -->|扣减成功| SAVE[保存订单到 DB]
     SAVE --> DONE([消费完成])
 
-    BIZEX --> RECORD[记录失败]
-    BIZEX2 --> RECORD
-    RECORD --> RBSTOCK[回滚 Redis 库存 +1]
+    BIZEX --> RBSTOCK[回滚 Redis 库存 +1]
+    BIZEX2 --> RBSTOCK
     RBSTOCK --> RBUSER[移除用户 Set]
     RBUSER --> DELIDEM[删除幂等键]
-    DELIDEM --> LOG[写入失败核查队列<br/>日志记录]
+    DELIDEM --> LOG[日志记录失败原因]
     LOG --> DONE
 
     SAVE -->|系统异常| THROW1[抛出异常<br/>触发 MQ 重试]
@@ -239,7 +239,7 @@ FlashDeal
 │   │   │   │       ├── SeckillVoucherServiceImpl.java
 │   │   │   │       └── VoucherOrderServiceImpl.java     # ⭐ 秒杀核心逻辑
 │   │   │   ├── rocketmq/                        # MQ 生产/消费
-│   │   │   │   ├── VoucherOrderProducer.java    # 同步发送+补偿队列
+│   │   │   │   ├── VoucherOrderProducer.java    # 同步发送（补偿队列方法预留未启用）
 │   │   │   │   ├── VoucherOrderConsumer.java    # 幂等消费+失败回滚
 │   │   │   │   └── SeckillFailRecord.java       # 失败记录实体
 │   │   │   ├── mapper/                          # MyBatis Plus Mapper
@@ -547,13 +547,13 @@ return 0                              -- 成功
 - **消费端幂等**：`SETNX` 24 小时幂等键，防止 MQ 重投
 - **DB 乐观锁兜底**：`WHERE stock > 0` 防止超卖，DB 层再次校验防重复
 - **业务异常回滚**：消费失败时回滚 Redis 库存，保证不"少卖"
-- **Redis 熔断保护**：Redis 连接异常时直接返回"系统繁忙"，避免雪崩
+- **Redis 异常降级**：Redis 连接异常时直接返回"系统繁忙"，避免请求堆积压垮 DB
 
-### 4. 分层限流防雪崩
+### 4. 分层防御体系
 
-- **第一层**：Redisson `RRateLimiter` 全局限流 3000 req/s，超出直接返回"系统繁忙"
-- **第二层**：Redis Lua 脚本快速拒绝无库存/重复请求，不进入 MQ
-- **第三层**：DB 乐观锁 `WHERE stock > 0` 兜底防超卖
+- **第一层（入口限流）**：Redisson `RRateLimiter` 全局限流 3000 req/s，超出直接返回"系统繁忙"
+- **第二层（快速失败）**：Redis Lua 脚本原子预扣，瞬间拒绝无库存/重复请求，不进入后续流程
+- **第三层（数据兜底）**：DB 乐观锁 `WHERE stock > 0` 确保最终数据一致性，防止超卖
 
 ---
 
@@ -561,9 +561,9 @@ return 0                              -- 成功
 
 | 指标 | 数值 | 说明 |
 | :--- | :--- | :--- |
-| 单机 QPS | ~3000 | 受限流器配置约束 |
-| 平均响应时间 | < 50ms | Redis 预扣 + MQ 同步发送 |
-| wrk 压测 | 100 并发，630K+ 请求，P99 < 7ms | 本地 benchmark 参考数据 |
+| 系统吞吐 | ~23000 req/s | 200 连接压测实测，限流拦截 87% 后放行约 3000 req/s |
+| 平均响应时间 | ~10ms | Redis 预扣 + MQ 同步发送 |
+| wrk 压测 | 200 连接 / 8 线程，696K+ 请求，P99 = 35.59ms | 本地 30s benchmark 实测数据 |
 | 超卖防护 | 理论可完全避免 | Lua 原子操作 + DB 乐观锁双重保障 |
 | 重复下单防护 | 理论可完全避免 | Redis Set + DB 乐观锁 + DB 唯一索引 |
 
