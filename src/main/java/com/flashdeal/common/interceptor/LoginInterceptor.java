@@ -30,18 +30,13 @@ public class LoginInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        // 1. 登录接口直接放行
-        String requestURI = request.getRequestURI();
-        if (requestURI.contains("/user/login")) {
-            return true;
-        }
 
         // 2. 从请求头中获取令牌
         String token = request.getHeader(jwtProperties.getUserTokenName());
 
         // 3. 令牌为空直接拦截
         if (token == null || token.isBlank()) {
-            log.warn("请求缺少token, URL: {}", requestURI);
+            log.warn("请求缺少token, URL: {}", request.getRequestURI());
             response.setStatus(401);
             response.setContentType("application/json;charset=UTF-8");
             response.getWriter().write("{\"code\":0,\"msg\":\"用户未登录\",\"data\":null}");

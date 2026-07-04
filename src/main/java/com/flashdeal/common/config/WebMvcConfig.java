@@ -36,7 +36,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
         // 2. JWT 登录拦截器（限流之后执行）
         registry.addInterceptor(loginInterceptor)
                 .addPathPatterns("/user/**")
-                .excludePathPatterns("/user/user/login")
+                .excludePathPatterns("/user/login")
                 .order(1);
     }
 
