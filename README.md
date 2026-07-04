@@ -86,7 +86,7 @@ flowchart TB
     subgraph Cache["缓存层 Redis"]
         STOCK[("seckill:{id}:stock<br/>库存")]
         ORDER[("seckill:{id}:order<br/>已购用户 Set")]
-        IDEM[("seckill:{orderId}:consumed<br/>三态幂等键")]
+        IDEM[("seckill:{userId}:{voucherId}:consumed<br/>三态幂等键")]
 
         LUA["Lua 脚本<br/>原子预扣"]
     end
@@ -478,7 +478,7 @@ Authorization: Bearer <登录返回的 token>
 ### 查询秒杀订单状态
 
 ```http
-GET /user/voucher-order/seckill/status/{orderId}
+GET /user/voucher-order/seckill/status/{voucherId}
 Authorization: Bearer <登录返回的 token>
 ```
 

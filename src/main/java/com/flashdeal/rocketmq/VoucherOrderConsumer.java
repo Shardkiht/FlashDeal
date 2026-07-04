@@ -36,7 +36,7 @@ public class VoucherOrderConsumer implements RocketMQListener<VoucherOrder> {
 
     @Override
     public void onMessage(VoucherOrder order) {
-        String idempotencyKey = RedisKeyConstant.getConsumedKey(order.getId());
+        String idempotencyKey = RedisKeyConstant.getConsumedKey(order.getUserId(), order.getVoucherId());
 
         // 不再用 setIfAbsent 当"门禁"，而是读取当前状态，只有终态(SUCCESS/FAILED)才跳过
         String status = stringRedisTemplate.opsForValue().get(idempotencyKey);

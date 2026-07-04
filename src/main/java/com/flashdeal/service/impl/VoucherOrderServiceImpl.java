@@ -75,7 +75,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
         String stockKey = RedisKeyConstant.getSeckillVoucherStockKey(voucherId);
         String orderKey = RedisKeyConstant.getSeckillVoucherOrderKey(voucherId);
-        String idempotencyKey = RedisKeyConstant.getConsumedKey(orderId);
+        String idempotencyKey = RedisKeyConstant.getConsumedKey(userId, voucherId);
 
         try {
             // 1. 执行 Lua 脚本判断购买资格并预扣减 Redis 库存

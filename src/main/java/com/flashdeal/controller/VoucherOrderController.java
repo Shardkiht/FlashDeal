@@ -1,6 +1,7 @@
 package com.flashdeal.controller;
 
 import com.flashdeal.common.constant.RedisKeyConstant;
+import com.flashdeal.common.utils.UserHolder;
 import com.flashdeal.domain.Result;
 import com.flashdeal.service.IVoucherOrderService;
 import lombok.RequiredArgsConstructor;
@@ -36,12 +37,13 @@ public class VoucherOrderController {
     /**
      * 查询秒杀订单处理状态
      *
-     * @param orderId 订单id
+     * @param voucherId 优惠券id
      * @return 状态：PROCESSING/SUCCESS/FAILED/UNKNOWN
      */
-    @GetMapping("seckill/status/{orderId}")
-    public Result<String> queryOrderStatus(@PathVariable("orderId") Long orderId) {
-        String status = stringRedisTemplate.opsForValue().get(RedisKeyConstant.getConsumedKey(orderId));
+    @GetMapping("seckill/status/{voucherId}")
+    public Result<String> queryOrderStatus(@PathVariable Long voucherId) {
+        Long userId = UserHolder.getCurrentId();
+        String status = stringRedisTemplate.opsForValue().get(RedisKeyConstant.getConsumedKey(userId, voucherId));
         return Result.success(status == null ? "UNKNOWN" : status);
     }
 }

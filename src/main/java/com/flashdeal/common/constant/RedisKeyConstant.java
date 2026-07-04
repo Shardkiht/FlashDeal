@@ -17,7 +17,7 @@ public class RedisKeyConstant {
     }
 
     // 幂等/状态 key，PROCESSING/SUCCESS/FAILED 三态复用
-    public static String getConsumedKey(Long orderId) {
-        return "seckill:{" + orderId + "}:consumed";
+    public static String getConsumedKey(Long userId, Long voucherId) {
+        return "seckill:{" + userId + "}:{" + voucherId + "}:consumed";
     }
 }
