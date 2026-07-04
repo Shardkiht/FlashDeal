@@ -21,7 +21,7 @@
 
 ## 📖 项目简介
 
-**FlashDeal** 是一个面向高并发场景的秒杀系统，核心解决电商促销、限量抢购等业务中常见的三大难题：**超卖**、**重复下单**、**流量洪峰**。系统通过 Redis Lua 脚本实现原子性库存预扣减，借助 RocketMQ 完成订单异步落库，并使用 Redisson 分布式锁与限流器保障数据一致性与系统稳定性。
+**FlashDeal** 是一个面向高并发场景的秒杀系统，核心解决电商促销、限量抢购等业务中常见的三大难题：**超卖**、**重复下单**、**流量洪峰**。系统通过 Redis Lua 脚本实现原子性库存预扣减，借助 RocketMQ 完成订单异步落库，并使用 Redisson 限流器保障系统稳定性。
 
 整体设计遵循"**前置拦截 → 原子预扣 → 异步落库 → 失败补偿**"的分层防御理念，单机可支撑每秒数千次秒杀请求，在保证业务正确性的同时最大化吞吐能力。项目代码结构清晰、注释完善，既可作为生产级秒杀方案的参考实现，也适合作为学习高并发架构设计的实战案例。
 
@@ -37,7 +37,7 @@
 | 🆔 **全局唯一 ID** | Hutool Snowflake | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式 |
 | 🗄️ **库存预热** | `@PostConstruct` 自动加载 | 应用启动时自动将 DB 秒杀库存同步到 Redis |
 | 📨 **异步落库** | RocketMQ 同步发送 | Redis 预扣成功后异步写 DB，发送失败自动回滚 Redis |
-| 🔒 **分布式锁** | Redisson `RLock` | 按用户加锁，DB 层兜底防重复下单 |
+| 🔒 **DB 乐观锁** | `WHERE stock > 0` | 数据库层兜底，防止超卖与重复下单 |
 | 🛡️ **幂等消费** | Redis `SETNX` | 消费端 24 小时幂等键，防止 MQ 重投导致重复处理 |
 | 💥 **超卖防御** | DB 乐观锁 `stock > 0` | `UPDATE ... SET stock = stock - 1 WHERE stock > 0` |
 | 🔄 **失败补偿** | Redis 回滚 + 失败队列 | MQ 发送失败 / 消费业务异常时自动回滚库存 |
@@ -53,7 +53,7 @@
 | **ORM 框架** | MyBatis Plus | 3.5.16 |
 | **关系型数据库** | MySQL | 8.0+ |
 | **缓存中间件** | Redis | 7.0+ |
-| **分布式锁/限流** | Redisson | 3.27.0 |
+| **限流** | Redisson | 3.27.0 |
 | **消息队列** | Apache RocketMQ | 4.9.7 |
 | **认证授权** | JWT | 0.12.6 |
 | **工具库** | Hutool / Lombok | 5.8.34 / -- |
@@ -62,7 +62,7 @@
 
 ## 🏗️ 系统架构
 
-下图展示了 FlashDeal 的整体架构与各组件协作关系。客户端请求经过限流器与登录拦截器后进入业务层，业务层通过 Redis 完成原子预扣，再通过 RocketMQ 异步落库，最终由消费者在分布式锁保护下写入 MySQL。
+下图展示了 FlashDeal 的整体架构与各组件协作关系。客户端请求经过限流器与登录拦截器后进入业务层，业务层通过 Redis 完成原子预扣，再通过 RocketMQ 异步落库，最终由消费者在幂等校验与 DB 乐观锁保护下写入 MySQL。
 
 ```mermaid
 flowchart TB
@@ -81,7 +81,6 @@ flowchart TB
         IDG["SnowflakeIdGenerate<br/>全局唯一 ID"]
         PROD["VoucherOrderProducer"]
         CONS["VoucherOrderConsumer"]
-        LOCK["Redisson 分布式锁"]
     end
 
     subgraph Cache["缓存层 Redis"]
@@ -115,17 +114,16 @@ flowchart TB
     PROD -->|同步发送| TOPIC
     PROD -.->|发送失败| STOCK
     TOPIC --> CONS
-    CONS --> IDEM
-    CONS -->|幂等通过| LOCK
-    LOCK -->|加锁| MYSQL
+    CONS -->|幂等通过| IDEM
+    CONS -->|幂等通过| MYSQL
     MYSQL -->|stock=stock-1<br/>WHERE stock>0| MYSQL
 
-    style RL fill:#ffe0b2
-    style LUA fill:#c8e6c9
-    style TOPIC fill:#bbdefb
-    style MYSQL fill:#f8bbd0
-    style REJ fill:#ffcdd2
-    style UNAUTH fill:#ffcdd2
+    style RL fill:#e65100,color:#fff
+    style LUA fill:#2e7d32,color:#fff
+    style TOPIC fill:#1565c0,color:#fff
+    style MYSQL fill:#c62828,color:#fff
+    style REJ fill:#b71c1c,color:#fff
+    style UNAUTH fill:#b71c1c,color:#fff
 ```
 
 ---
@@ -155,40 +153,36 @@ flowchart TD
     MQ -->|发送失败| ROLLBACK[回滚 Redis<br/>库存 +1<br/>移除用户 Set]
     ROLLBACK --> R5[返回: 系统繁忙<br/>请稍后重试]
 
-    style START fill:#e1bee7
-    style OK fill:#c8e6c9
-    style R1 fill:#ffcdd2
-    style R2 fill:#ffcdd2
-    style R3 fill:#ffcdd2
-    style R4 fill:#ffcdd2
-    style R5 fill:#ffcdd2
-    style LUA fill:#fff9c4
-    style DECR fill:#bbdefb
-    style ROLLBACK fill:#ffe0b2
+    style START fill:#6a1b9a,color:#fff
+    style OK fill:#2e7d32,color:#fff
+    style R1 fill:#b71c1c,color:#fff
+    style R2 fill:#b71c1c,color:#fff
+    style R3 fill:#b71c1c,color:#fff
+    style R4 fill:#b71c1c,color:#fff
+    style R5 fill:#b71c1c,color:#fff
+    style LUA fill:#f9a825,color:#212121
+    style DECR fill:#1565c0,color:#fff
+    style ROLLBACK fill:#e65100,color:#fff
 ```
 
 ---
 
 ## 📨 MQ 消费与补偿流程
 
-下图展示了 RocketMQ 消费者侧的处理逻辑。消费者收到订单消息后，先做幂等校验，再在分布式锁保护下完成 DB 落库。若发生业务异常（如库存不足、重复下单），会自动回滚 Redis 预扣的库存，保证 Redis 与 DB 数据最终一致。
+下图展示了 RocketMQ 消费者侧的处理逻辑。消费者收到订单消息后，先做幂等校验，再在 DB 乐观锁保护下完成 DB 落库。若发生业务异常（如库存不足、重复下单），会自动回滚 Redis 预扣的库存，保证 Redis 与 DB 数据最终一致。
 
 ```mermaid
 flowchart TD
     MSG([收到 MQ 订单消息]) --> IDEM{幂等校验<br/>SETNX 24h}
     IDEM -->|已处理过| SKIP[跳过, 直接 ACK]
-    IDEM -->|首次处理| LOCK{获取 Redisson 锁<br/>lock:voucher:order:userId}
-
-    LOCK -->|获取失败| THROW1[抛出异常<br/>触发 MQ 重试]
-    LOCK -->|获取成功| DBCHECK{DB 查询<br/>用户是否已下单}
+    IDEM -->|首次处理| DBCHECK{DB 查询<br/>用户是否已下单}
 
     DBCHECK -->|已下单| BIZEX[业务异常<br/>不能重复下单]
     DBCHECK -->|未下单| DBSTOCK{DB 扣减库存<br/>WHERE stock > 0}
 
     DBSTOCK -->|扣减失败| BIZEX2[业务异常<br/>库存不足]
     DBSTOCK -->|扣减成功| SAVE[保存订单到 DB]
-    SAVE --> UNLOCK[释放分布式锁]
-    UNLOCK --> DONE([消费完成])
+    SAVE --> DONE([消费完成])
 
     BIZEX --> RECORD[记录失败]
     BIZEX2 --> RECORD
@@ -198,18 +192,19 @@ flowchart TD
     DELIDEM --> LOG[写入失败核查队列<br/>日志记录]
     LOG --> DONE
 
+    DBCHECK -->|获取失败| THROW1[抛出异常<br/>触发 MQ 重试]
     THROW1 --> RETRY{{MQ 自动重试<br/>最多 3 次}}
     RETRY -->|重试耗尽| DLQ[进入死信队列<br/>人工介入]
 
-    style MSG fill:#e1bee7
-    style DONE fill:#c8e6c9
-    style SKIP fill:#fff9c4
-    style BIZEX fill:#ffcdd2
-    style BIZEX2 fill:#ffcdd2
-    style THROW1 fill:#ffcdd2
-    style DLQ fill:#ef9a9a
-    style RBSTOCK fill:#ffe0b2
-    style SAVE fill:#bbdefb
+    style MSG fill:#6a1b9a,color:#fff
+    style DONE fill:#2e7d32,color:#fff
+    style SKIP fill:#f9a825,color:#212121
+    style BIZEX fill:#b71c1c,color:#fff
+    style BIZEX2 fill:#b71c1c,color:#fff
+    style THROW1 fill:#b71c1c,color:#fff
+    style DLQ fill:#b71c1c,color:#fff
+    style RBSTOCK fill:#e65100,color:#fff
+    style SAVE fill:#1565c0,color:#fff
 ```
 
 ---
@@ -299,7 +294,7 @@ FlashDeal
 | JDK | 17 | 必须 |
 | Maven | 3.8+ | 构建工具 |
 | MySQL | 8.0+ | 数据存储 |
-| Redis | 7.0+ | 缓存与分布式锁 |
+| Redis | 7.0+ | 缓存 |
 | RocketMQ | 4.9.7 | 消息队列 |
 
 ### 1. 初始化数据库
@@ -550,7 +545,7 @@ return 0                              -- 成功
 
 - **MQ 同步发送**：发送成功才返回用户成功，发送失败立即回滚 Redis
 - **消费端幂等**：`SETNX` 24 小时幂等键，防止 MQ 重投
-- **分布式锁兜底**：按用户加锁，DB 层再次校验防重复
+- **DB 乐观锁兜底**：`WHERE stock > 0` 防止超卖，DB 层再次校验防重复
 - **业务异常回滚**：消费失败时回滚 Redis 库存，保证不"少卖"
 - **Redis 熔断保护**：Redis 连接异常时直接返回"系统繁忙"，避免雪崩
 
@@ -570,7 +565,7 @@ return 0                              -- 成功
 | 平均响应时间 | < 50ms | Redis 预扣 + MQ 同步发送 |
 | wrk 压测 | 100 并发，630K+ 请求，P99 < 7ms | 本地 benchmark 参考数据 |
 | 超卖防护 | 理论可完全避免 | Lua 原子操作 + DB 乐观锁双重保障 |
-| 重复下单防护 | 理论可完全避免 | Redis Set + 分布式锁 + DB 唯一索引 |
+| 重复下单防护 | 理论可完全避免 | Redis Set + DB 乐观锁 + DB 唯一索引 |
 
 ---
 
@@ -602,7 +597,7 @@ chmod +x seckill_test.sh single_user_test.sh
 - [x] 秒杀优惠券管理
 - [x] Redis Lua 原子预扣
 - [x] RocketMQ 异步落库
-- [x] 分布式锁防重复
+- [x] DB 乐观锁防重复
 - [x] 失败补偿与回滚
 - [x] 接口压测脚本（wrk）
 - [ ] Docker Compose 一键部署
