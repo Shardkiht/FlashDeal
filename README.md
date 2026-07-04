@@ -29,18 +29,18 @@
 
 ## ✨ 核心特性
 
-| 特性 | 实现方式 | 说明 |
-| :--- | :--- | :--- |
-| 🚀 **流量整形** | Redisson `RRateLimiter` | 全局限流 3000 req/s，超出直接拒绝，压测中拦截 87% 请求 |
-| 🔐 **登录鉴权** | JWT + 拦截器 | 无状态认证，Token 有效期 2 小时 |
-| ⚡ **原子预扣** | Redis Lua 脚本 | 库存校验 + 扣减 + 去重三步原子完成，避免竞态 |
-| 🆔 **全局唯一 ID** | Hutool Snowflake | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式 |
-| 🗄️ **库存预热** | `@PostConstruct` 自动加载 | 应用启动时自动将 DB 秒杀库存同步到 Redis |
-| 📨 **异步落库** | RocketMQ 同步发送 | Redis 预扣成功后异步写 DB，发送失败自动回滚 Redis |
-| 🔒 **DB 乐观锁** | `WHERE stock > 0` | 数据库层兜底，防止超卖与重复下单 |
-| 🛡️ **三态幂等** | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询 |
-| 💥 **超卖防御** | DB 乐观锁 `stock > 0` | `UPDATE ... SET stock = stock - 1 WHERE stock > 0` |
-| 🔄 **失败补偿** | Redis 回滚 + 结构化留痕 | MQ 发送失败 / 消费业务异常时自动回滚库存，失败记录便于人工核查 |
+| 特性             | 实现方式                              | 说明                                                 |
+|:---------------|:----------------------------------|:---------------------------------------------------|
+| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，超出直接拒绝，压测中拦截 87% 请求                |
+| 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时                               |
+| ⚡ **原子预扣**     | Redis Lua 脚本                      | 库存校验 + 扣减 + 去重三步原子完成，避免竞态                          |
+| 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式           |
+| 🗄️ **库存预热**   | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （目前代码仅限测试使用）             |
+| 📨 **异步落库**    | RocketMQ 同步发送                     | Redis 预扣成功后异步写 DB，发送失败自动回滚 Redis                   |
+| 🔒 **DB 乐观锁**  | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                   |
+| 🛡️ **三态幂等**   | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                           |
+| 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0` |
+| 🔄 **失败补偿**    | Redis 回滚 + 结构化留痕                  | MQ 发送失败 / 消费业务异常时自动回滚库存，失败记录便于人工核查                 |
 
 ---
 
@@ -115,7 +115,7 @@ flowchart TB
     PROD -.->|发送失败| RB[回滚库存<br/>移除用户 Set]
     RB --> STOCK
     TOPIC --> CONS
-    CONS -->|幂等校验| IDEM
+    CONS -->|终态判断| IDEM
     CONS -->|DB 操作| MYSQL
     MYSQL -->|stock=stock-1<br/>WHERE stock>0| MYSQL
 
