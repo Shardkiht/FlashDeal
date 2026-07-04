@@ -31,11 +31,10 @@ public class LoginInterceptor implements HandlerInterceptor {
             return true;
         }
 
-
-        // 2. 从请求头中获取令牌
+        // 1. 从请求头中获取令牌
         String token = request.getHeader(jwtProperties.getUserTokenName());
 
-        // 3. 令牌为空直接拦截
+        // 2. 令牌为空直接拦截
         if (token == null || token.isBlank()) {
             log.warn("请求缺少token, URL: {}", request.getRequestURI());
             response.setStatus(401);
@@ -44,7 +43,7 @@ public class LoginInterceptor implements HandlerInterceptor {
             return false;
         }
 
-        // 4. 校验令牌
+        // 3. 校验令牌
         try {
             log.info("jwt校验:{}", token);
             Claims claims = JwtUtil.parseJWT(jwtProperties.getUserSecretKey(), token);

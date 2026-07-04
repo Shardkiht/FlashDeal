@@ -67,7 +67,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             LuaScriptUtil.load("lua/seckill.lua", Long.class);
 
     @Override
-    public Result seckillVoucher(Long voucherId) {
+    public Result<Long> seckillVoucher(Long voucherId) {
         Long orderId = snowflakeIdGenerate.nextId();
         Long userId = UserHolder.getCurrentId();
         log.info("生成订单ID={}, userId={}", orderId, userId);
@@ -86,8 +86,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             log.info("Lua脚本执行结果={}, orderId={}", result, orderId);
 
             // 2. 结果判断
-            if (result == null || result != 0) {
-                return Result.error(result != null && result == 1
+            if (result != 0) {
+                return Result.error(result == 1
                         ? MessageConstant.VOUCHER_INSUFFICIENT
                         : MessageConstant.REPEAT_ORDER);
             }
@@ -117,7 +117,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.success(orderId);
 
         } catch (RedisConnectionFailureException | RedisCommandTimeoutException | RedisSystemException e) {
-            log.error("Redis 熔断，voucherId={}, userId={}", voucherId, userId, e);
+            log.error("Redis 异常降级，voucherId={}, userId={}", voucherId, userId, e);
             return Result.error("当前系统繁忙，请稍后重试");
         }
     }

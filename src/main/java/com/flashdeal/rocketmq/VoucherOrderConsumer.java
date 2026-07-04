@@ -24,7 +24,7 @@ import java.time.Duration;
         topic = MessageConstant.VOUCHER_ORDER_TOPIC,
         consumerGroup = MessageConstant.VOUCHER_ORDER_CONSUMER_GROUP,
         messageModel = MessageModel.CLUSTERING,
-        consumeThreadMax = 64,
+        consumeThreadMax = 32,
         maxReconsumeTimes = 3
 )
 @RequiredArgsConstructor
@@ -66,7 +66,8 @@ public class VoucherOrderConsumer implements RocketMQListener<VoucherOrder> {
             stringRedisTemplate.opsForSet().remove(orderKey, String.valueOf(order.getUserId()));
             stringRedisTemplate.delete("seckill:consumed:" + order.getId());
 
-            SeckillFailRecord record = new SeckillFailRecord();
+            // 订单不存在，记录业务异常
+            //SeckillFailRecord record = new SeckillFailRecord();
             log.error("业务异常订单进入核查队列: orderId={}, userId={}, voucherId={}, reason={}",
                     order.getId(), order.getUserId(), order.getVoucherId(), reason);
         }
