@@ -1,14 +1,16 @@
 package com.flashdeal.common.interceptor;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flashdeal.common.constant.JwtClaimsConstant;
 import com.flashdeal.common.properties.JwtProperties;
 import com.flashdeal.common.utils.JwtUtil;
 import com.flashdeal.common.utils.UserHolder;
+import com.flashdeal.domain.Result;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
@@ -19,10 +21,11 @@ import org.springframework.web.servlet.HandlerInterceptor;
  */
 @Component
 @Slf4j
+@RequiredArgsConstructor
 public class LoginInterceptor implements HandlerInterceptor {
 
-    @Autowired
-    private JwtProperties jwtProperties;
+    private final JwtProperties jwtProperties;
+    private final ObjectMapper objectMapper;
 
     @Override
     public boolean preHandle(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler) throws Exception {
@@ -37,9 +40,7 @@ public class LoginInterceptor implements HandlerInterceptor {
         // 2. 令牌为空直接拦截
         if (token == null || token.isBlank()) {
             log.warn("请求缺少token, URL: {}", request.getRequestURI());
-            response.setStatus(401);
-            response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"code\":0,\"msg\":\"用户未登录\",\"data\":null}");
+            writeErrorResponse(response);
             return false;
         }
 
@@ -53,9 +54,7 @@ public class LoginInterceptor implements HandlerInterceptor {
             return true;
         } catch (Exception ex) {
             log.error("JWT解析失败: {}", ex.getMessage(), ex);
-            response.setStatus(401);
-            response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"code\":0,\"msg\":\"用户未登录\",\"data\":null}");
+            writeErrorResponse(response);
             return false;
         }
     }
@@ -63,5 +62,13 @@ public class LoginInterceptor implements HandlerInterceptor {
     @Override
     public void afterCompletion(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler, Exception ex) {
         UserHolder.removeCurrentId();
+    }
+
+    private void writeErrorResponse(HttpServletResponse response) throws Exception {
+        response.setStatus(200);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write(objectMapper.writeValueAsString(
+                Result.error("用户未登录")
+        ));
     }
 }
