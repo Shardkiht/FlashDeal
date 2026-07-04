@@ -114,8 +114,8 @@ flowchart TB
     PROD -->|同步发送| TOPIC
     PROD -.->|发送失败| STOCK
     TOPIC --> CONS
-    CONS -->|幂等通过| IDEM
-    CONS -->|幂等通过| MYSQL
+    CONS -->|幂等校验| IDEM
+    CONS -->|DB 操作| MYSQL
     MYSQL -->|stock=stock-1<br/>WHERE stock>0| MYSQL
 
     style RL fill:#e65100,color:#fff
@@ -192,7 +192,7 @@ flowchart TD
     DELIDEM --> LOG[写入失败核查队列<br/>日志记录]
     LOG --> DONE
 
-    DBCHECK -->|获取失败| THROW1[抛出异常<br/>触发 MQ 重试]
+    SAVE -->|系统异常| THROW1[抛出异常<br/>触发 MQ 重试]
     THROW1 --> RETRY{{MQ 自动重试<br/>最多 3 次}}
     RETRY -->|重试耗尽| DLQ[进入死信队列<br/>人工介入]
 
@@ -241,7 +241,7 @@ FlashDeal
 │   │   │   ├── rocketmq/                        # MQ 生产/消费
 │   │   │   │   ├── VoucherOrderProducer.java    # 同步发送+补偿队列
 │   │   │   │   ├── VoucherOrderConsumer.java    # 幂等消费+失败回滚
-│   │   │   │   └── SeckillFailRecord.java       # 失败记录占位类
+│   │   │   │   └── SeckillFailRecord.java       # 失败记录实体
 │   │   │   ├── mapper/                          # MyBatis Plus Mapper
 │   │   │   ├── domain/                          # 实体与 DTO/VO
 │   │   │   │   ├── User.java
