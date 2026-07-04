@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * JWT 配置属性
- * 仅保留用户端配置，删除管理端配置。
+ * 用户端 JWT 配置属性。
  */
 @Component
 @ConfigurationProperties(prefix = "flashdeal.jwt")

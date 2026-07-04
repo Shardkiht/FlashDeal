@@ -2,7 +2,7 @@ package com.flashdeal.common.constant;
 
 /**
  * Redis Key 常量
- * 仅保留秒杀相关 Key
+ * 秒杀相关 Redis Key 常量。
  */
 public class RedisKeyConstant {
 

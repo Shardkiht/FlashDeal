@@ -2,7 +2,7 @@ package com.flashdeal.common.constant;
 
 /**
  * 信息提示常量类
- * 仅保留登录与秒杀相关常量，删除外卖业务相关提示。
+ * 登录与秒杀相关消息常量。
  */
 public class MessageConstant {
 
