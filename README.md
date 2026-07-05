@@ -21,9 +21,11 @@
 
 ## 📖 项目简介
 
-**FlashDeal** 是一个面向高并发场景的秒杀系统，核心解决电商促销、限量抢购等业务中常见的三大难题：**超卖**、**重复下单**、**流量洪峰**。系统通过 Redis Lua 脚本实现原子性库存预扣减，借助 RocketMQ 完成订单异步落库，并使用 Redisson 限流器保障系统稳定性。
+**FlashDeal** 是一个面向高并发场景的秒杀系统，核心解决电商促销、限量抢购等业务中常见的三大难题：**超卖**、**重复下单**、*
+*流量洪峰**。系统通过 Redis Lua 脚本实现原子性库存预扣减，借助 RocketMQ 完成订单异步落库，并使用 Redisson 限流器保障系统稳定性。
 
-整体设计遵循"**前置拦截 → 原子预扣 → 异步落库 → 失败补偿**"的分层防御理念，单机可支撑每秒数千次秒杀请求，在保证业务正确性的同时最大化吞吐能力。项目代码结构清晰、注释完善，既可作为生产级秒杀方案的参考实现，也适合作为学习高并发架构设计的实战案例。
+整体设计遵循"**前置拦截 → 原子预扣 → 异步落库 → 失败补偿**"
+的分层防御理念，单机可支撑每秒数千次秒杀请求，在保证业务正确性的同时最大化吞吐能力。项目代码结构清晰、注释完善，既可作为生产级秒杀方案的参考实现，也适合作为学习高并发架构设计的实战案例。
 
 ---
 
@@ -46,23 +48,24 @@
 
 ## 🛠️ 技术栈
 
-| 分类 | 技术 | 版本 |
-| :--- | :--- | :--- |
-| **基础框架** | Spring Boot | 3.5.16 |
-| **开发语言** | Java | 17 |
-| **ORM 框架** | MyBatis Plus | 3.5.16 |
-| **关系型数据库** | MySQL | 8.0+ |
-| **缓存中间件** | Redis | 7.0+ |
-| **限流** | Redisson | 3.27.0 |
-| **消息队列** | Apache RocketMQ | 4.9.7 |
-| **认证授权** | JWT | 0.12.6 |
-| **工具库** | Hutool / Lombok | 5.8.34 / -- |
+| 分类         | 技术              | 版本          |
+|:-----------|:----------------|:------------|
+| **基础框架**   | Spring Boot     | 3.5.16      |
+| **开发语言**   | Java            | 17          |
+| **ORM 框架** | MyBatis Plus    | 3.5.16      |
+| **关系型数据库** | MySQL           | 8.0+        |
+| **缓存中间件**  | Redis           | 7.0+        |
+| **限流**     | Redisson        | 3.27.0      |
+| **消息队列**   | Apache RocketMQ | 4.9.7       |
+| **认证授权**   | JWT             | 0.12.6      |
+| **工具库**    | Hutool / Lombok | 5.8.34 / -- |
 
 ---
 
 ## 🏗️ 系统架构
 
-下图展示了 FlashDeal 的整体架构与各组件协作关系。客户端请求经过限流器与登录拦截器后进入业务层，业务层通过 Redis 完成原子预扣，再通过 RocketMQ 异步落库，最终由消费者在幂等校验与 DB 乐观锁保护下写入 MySQL。
+下图展示了 FlashDeal 的整体架构与各组件协作关系。客户端请求经过限流器与登录拦截器后进入业务层，业务层通过 Redis 完成原子预扣，再通过
+RocketMQ 异步落库，最终由消费者在幂等校验与 DB 乐观锁保护下写入 MySQL。
 
 ```mermaid
 flowchart TB
@@ -133,7 +136,8 @@ flowchart TB
 
 ## ⚡ 秒杀核心流程
 
-下图展示了从用户点击"立即抢购"到订单创建完成的完整链路，包含限流、鉴权、Lua 原子预扣、MQ 异步发送、失败回滚等关键环节。这是整个系统最核心的流程，所有的高并发设计都集中体现在这里。
+下图展示了从用户点击"立即抢购"到订单创建完成的完整链路，包含限流、鉴权、Lua 原子预扣、MQ
+异步发送、失败回滚等关键环节。这是整个系统最核心的流程，所有的高并发设计都集中体现在这里。
 
 ```mermaid
 flowchart TD
@@ -173,7 +177,8 @@ flowchart TD
 
 ## 📨 MQ 消费与补偿流程
 
-下图展示了 RocketMQ 消费者侧的处理逻辑。消费者收到订单消息后，先做幂等校验，再在 DB 乐观锁保护下完成 DB 落库。若发生业务异常（如库存不足、重复下单），会自动回滚 Redis 预扣的库存，保证 Redis 与 DB 数据最终一致。
+下图展示了 RocketMQ 消费者侧的处理逻辑。消费者收到订单消息后，先做幂等校验，再在 DB 乐观锁保护下完成 DB
+落库。若发生业务异常（如库存不足、重复下单），会自动回滚 Redis 预扣的库存，保证 Redis 与 DB 数据最终一致。
 
 ```mermaid
 flowchart TD
@@ -291,72 +296,80 @@ FlashDeal
 
 ### 环境准备
 
-| 依赖 | 最低版本 | 说明 |
-| :--- | :--- | :--- |
-| JDK | 17 | 必须 |
-| Maven | 3.8+ | 构建工具 |
-| MySQL | 8.0+ | 数据存储 |
-| Redis | 7.0+ | 缓存 |
+| 依赖       | 最低版本  | 说明   |
+|:---------|:------|:-----|
+| JDK      | 17    | 必须   |
+| Maven    | 3.8+  | 构建工具 |
+| MySQL    | 8.0+  | 数据存储 |
+| Redis    | 7.0+  | 缓存   |
 | RocketMQ | 4.9.7 | 消息队列 |
 
 ### 1. 初始化数据库
 
 ```sql
 -- 用户表
-CREATE TABLE `user` (
-  `id` BIGINT NOT NULL AUTO_INCREMENT,
-  `openid` VARCHAR(64) DEFAULT NULL,
-  `name` VARCHAR(64) DEFAULT NULL,
-  `phone` VARCHAR(32) DEFAULT NULL,
-  `sex` VARCHAR(4) DEFAULT NULL,
-  `id_number` VARCHAR(32) DEFAULT NULL,
-  `avatar` VARCHAR(255) DEFAULT NULL,
-  `create_time` DATETIME DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_phone` (`phone`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE `user`
+(
+    `id`          BIGINT NOT NULL AUTO_INCREMENT,
+    `openid`      VARCHAR(64)  DEFAULT NULL,
+    `name`        VARCHAR(64)  DEFAULT NULL,
+    `phone`       VARCHAR(32)  DEFAULT NULL,
+    `sex`         VARCHAR(4)   DEFAULT NULL,
+    `id_number`   VARCHAR(32)  DEFAULT NULL,
+    `avatar`      VARCHAR(255) DEFAULT NULL,
+    `create_time` DATETIME     DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_phone` (`phone`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4;
 
 -- 优惠券表
-CREATE TABLE `tb_voucher` (
-  `id` BIGINT NOT NULL AUTO_INCREMENT,
-  `title` VARCHAR(128) DEFAULT NULL,
-  `sub_title` VARCHAR(128) DEFAULT NULL,
-  `rules` VARCHAR(1024) DEFAULT NULL,
-  `pay_value` BIGINT DEFAULT NULL,
-  `actual_value` BIGINT DEFAULT NULL,
-  `type` INT DEFAULT NULL,
-  `status` INT DEFAULT NULL,
-  `create_time` DATETIME DEFAULT NULL,
-  `update_time` DATETIME DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE `tb_voucher`
+(
+    `id`           BIGINT NOT NULL AUTO_INCREMENT,
+    `title`        VARCHAR(128)  DEFAULT NULL,
+    `sub_title`    VARCHAR(128)  DEFAULT NULL,
+    `rules`        VARCHAR(1024) DEFAULT NULL,
+    `pay_value`    BIGINT        DEFAULT NULL,
+    `actual_value` BIGINT        DEFAULT NULL,
+    `type`         INT           DEFAULT NULL,
+    `status`       INT           DEFAULT NULL,
+    `create_time`  DATETIME      DEFAULT NULL,
+    `update_time`  DATETIME      DEFAULT NULL,
+    PRIMARY KEY (`id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4;
 
 -- 秒杀优惠券表
-CREATE TABLE `tb_seckill_voucher` (
-  `voucher_id` BIGINT NOT NULL,
-  `stock` INT NOT NULL,
-  `create_time` DATETIME DEFAULT NULL,
-  `begin_time` DATETIME DEFAULT NULL,
-  `end_time` DATETIME DEFAULT NULL,
-  `update_time` DATETIME DEFAULT NULL,
-  PRIMARY KEY (`voucher_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE `tb_seckill_voucher`
+(
+    `voucher_id`  BIGINT NOT NULL,
+    `stock`       INT    NOT NULL,
+    `create_time` DATETIME DEFAULT NULL,
+    `begin_time`  DATETIME DEFAULT NULL,
+    `end_time`    DATETIME DEFAULT NULL,
+    `update_time` DATETIME DEFAULT NULL,
+    PRIMARY KEY (`voucher_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4;
 
 -- 优惠券订单表
-CREATE TABLE `tb_voucher_order` (
-  `id` BIGINT NOT NULL,
-  `user_id` BIGINT NOT NULL,
-  `voucher_id` BIGINT NOT NULL,
-  `pay_type` INT DEFAULT NULL,
-  `status` INT DEFAULT NULL,
-  `create_time` DATETIME DEFAULT NULL,
-  `pay_time` DATETIME DEFAULT NULL,
-  `use_time` DATETIME DEFAULT NULL,
-  `refund_time` DATETIME DEFAULT NULL,
-  `update_time` DATETIME DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_user_voucher` (`user_id`, `voucher_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE `tb_voucher_order`
+(
+    `id`          BIGINT NOT NULL,
+    `user_id`     BIGINT NOT NULL,
+    `voucher_id`  BIGINT NOT NULL,
+    `pay_type`    INT      DEFAULT NULL,
+    `status`      INT      DEFAULT NULL,
+    `create_time` DATETIME DEFAULT NULL,
+    `pay_time`    DATETIME DEFAULT NULL,
+    `use_time`    DATETIME DEFAULT NULL,
+    `refund_time` DATETIME DEFAULT NULL,
+    `update_time` DATETIME DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_user_voucher` (`user_id`, `voucher_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4;
 ```
 
 ### 2. 修改配置
@@ -497,12 +510,12 @@ Authorization: Bearer <登录返回的 token>
 
 **状态说明：**
 
-| 状态 | 含义 |
-| :--- | :--- |
-| `PROCESSING` | 订单正在处理中 |
-| `SUCCESS` | 订单创建成功 |
-| `FAILED` | 订单创建失败（已回滚库存） |
-| `UNKNOWN` | 订单不存在或状态已过期 |
+| 状态           | 含义            |
+|:-------------|:--------------|
+| `PROCESSING` | 订单正在处理中       |
+| `SUCCESS`    | 订单创建成功        |
+| `FAILED`     | 订单创建失败（已回滚库存） |
+| `UNKNOWN`    | 订单不存在或状态已过期   |
 
 **库存不足：**
 
@@ -540,7 +553,8 @@ Authorization: Bearer <登录返回的 token>
 
 ### 1. Lua 脚本原子操作
 
-秒杀场景下，库存校验、去重、库存扣减如果分开执行，会出现并发竞态。本项目通过两个 Lua 脚本分别覆盖正向预扣与失败回滚，所有操作在 Redis 单线程内原子完成：
+秒杀场景下，库存校验、去重、库存扣减如果分开执行，会出现并发竞态。本项目通过两个 Lua 脚本分别覆盖正向预扣与失败回滚，所有操作在
+Redis 单线程内原子完成：
 
 ```lua
 -- lua/seckill.lua — 原子预扣
@@ -569,7 +583,8 @@ end
 
 ### 2. 全局唯一订单 ID
 
-订单 ID 不能用 MySQL 自增（分库分表场景会冲突），也不能用 UUID（无序，影响 B+ 树插入性能）。本项目采用 **Hutool Snowflake 雪花算法**：
+订单 ID 不能用 MySQL 自增（分库分表场景会冲突），也不能用 UUID（无序，影响 B+ 树插入性能）。本项目采用 **Hutool Snowflake 雪花算法
+**：
 
 ```
 |  1 bit 符号位  |  41 bit 时间戳  |  10 bit 机器 ID  |  12 bit 序列号  |
@@ -603,13 +618,13 @@ end
 
 ## 📊 性能指标
 
-| 指标 | 数值 | 说明 |
-| :--- | :--- | :--- |
-| 系统吞吐 | ~23000 req/s | 200 连接压测实测，限流拦截 87% 后放行约 3000 req/s |
-| 平均响应时间 | ~10ms | Redis 预扣 + MQ 同步发送 |
-| wrk 压测 | 200 连接 / 8 线程，696K+ 请求，P99 = 35.59ms | 本地 30s benchmark 实测数据 |
-| 超卖防护 | 理论可完全避免 | Lua 原子操作 + DB 乐观锁双重保障 |
-| 重复下单防护 | 理论可完全避免 | Redis Set + DB 乐观锁 + DB 唯一索引 |
+| 指标     | 数值                                   | 说明                                  |
+|:-------|:-------------------------------------|:------------------------------------|
+| 系统吞吐   | ~23000 req/s                         | 200 连接压测实测，限流拦截 87% 后放行约 3000 req/s |
+| 平均响应时间 | ~10ms                                | Redis 预扣 + MQ 同步发送                  |
+| wrk 压测 | 200 连接 / 8 线程，696K+ 请求，P99 = 35.59ms | 本地 30s benchmark 实测数据               |
+| 超卖防护   | 理论可完全避免                              | Lua 原子操作 + DB 乐观锁双重保障               |
+| 重复下单防护 | 理论可完全避免                              | Redis Set + DB 乐观锁 + DB 唯一索引        |
 
 ---
 
@@ -629,6 +644,7 @@ chmod +x seckill_test.sh single_user_test.sh
 ```
 
 压测脚本会自动：
+
 1. 从 `tokens.txt` 读取用户 Token
 2. 使用 `wrk` 多线程并发请求秒杀接口
 3. 输出压测统计结果（QPS、延迟分布等）
