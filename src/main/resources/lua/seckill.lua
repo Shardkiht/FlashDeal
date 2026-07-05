@@ -7,12 +7,9 @@ if(tonumber(redis.call('get', stockKey) or 0) <= 0) then
     return 1
 end
 
--- 判断用户是否重复下单
-if(redis.call('sismember', orderKey, userId) == 1) then
-    return 2
+if(redis.call('sadd', orderKey, userId) == 0) then
+    return 2  -- sadd 返回0，说明这个用户已经在集合里了，判定重复下单
 end
 
--- 扣减库存并记录用户
 redis.call('decr', stockKey)
-redis.call('sadd', orderKey, userId)
 return 0
