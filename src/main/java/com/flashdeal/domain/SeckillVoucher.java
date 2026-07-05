@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
@@ -19,13 +20,14 @@ import java.time.LocalDateTime;
 @TableName("tb_seckill_voucher")
 public class SeckillVoucher implements Serializable {
 
+    @Serial
     private static final long serialVersionUID = 1L;
 
     /**
-     * 关联的优惠券的id
+     * 主键
      */
-    @TableId(value = "voucher_id", type = IdType.INPUT)
-    private Long voucherId;
+    @TableId(value = "id", type = IdType.AUTO)
+    private Long id;
 
     /**
      * 库存

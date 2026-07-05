@@ -18,12 +18,12 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.env.Environment;
-import org.springframework.data.redis.RedisConnectionFailureException;
-import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -60,10 +60,8 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
             stringRedisTemplate.delete(orderKey);
 
             // 2. 从数据库读取库存并设置到Redis
-            Long currentStock = stringRedisTemplate.opsForValue().increment(stockKey, voucher.getStock());
-            if (currentStock != null) {
-                log.info("初始化秒杀券ID={}, 库存={}", voucher.getId(), currentStock);
-            }
+            stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(voucher.getStock()));
+            log.info("初始化秒杀券ID={}, 库存={}", voucher.getId(), voucher.getStock());
         }
 
         log.info("秒杀库存初始化完成，共{}个商品", seckillVouchers.size());
@@ -101,6 +99,10 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
                         : MessageConstant.REPEAT_ORDER);
             }
 
+            // 设置已购用户集合过期，避免集合无限增长（30天），写在 Java 层以避免在 Lua 中增加额外开销
+            stringRedisTemplate.expire(orderKey, Duration.ofDays(30));
+
+
             // 3. 创建订单对象
             Long orderId = snowflakeIdGenerate.nextId();
             SeckillOrder seckillOrder = SeckillOrder.builder()
@@ -118,27 +120,12 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
 
             // 5. 异步发送 MQ，失败回调自动回滚 Redis 库存
             log.info("开始异步发送MQ, orderId={}", orderId);
-            try {
-                seckillProducer.sendOrderAsync(seckillOrder, stockKey, orderKey, idempotencyKey);
-            } catch (Exception ex) {
-                log.error("异步发送 MQ 同步异常，回滚 Redis 并返回错误, orderId={}", orderId, ex);
-                try {
-                    DefaultRedisScript<Long> rollbackScript = LuaScriptUtil.load("lua/rollback.lua", Long.class);
-                    stringRedisTemplate.execute(
-                            rollbackScript,
-                            Arrays.asList(stockKey, orderKey, idempotencyKey),
-                            String.valueOf(userId), "DELETE"
-                    );
-                } catch (Exception rex) {
-                    log.error("回滚 Redis 也失败, orderId={}", orderId, rex);
-                }
-                return Result.error("当前系统繁忙，请稍后重试");
-            }
+            seckillProducer.sendOrderAsync(seckillOrder, stockKey, orderKey, idempotencyKey);
 
             // 返回"处理中"，前端轮询用户最近的秒杀订单状态
             return Result.success("正在抢购中");
 
-        } catch (RedisConnectionFailureException | RedisCommandTimeoutException | RedisSystemException e) {
+        } catch (RedisCommandTimeoutException | DataAccessException e) {
             log.error("Redis 异常降级，voucherId={}, userId={}", voucherId, userId, e);
             return Result.error("当前系统繁忙，请稍后重试");
         }

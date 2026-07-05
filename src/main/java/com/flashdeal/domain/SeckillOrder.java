@@ -11,7 +11,7 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * 优惠券订单实体
+ * 秒杀订单实体
  */
 @Data
 @EqualsAndHashCode(callSuper = false)
@@ -20,7 +20,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @TableName("tb_voucher_order")
-public class VoucherOrder implements Serializable {
+public class SeckillOrder implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
