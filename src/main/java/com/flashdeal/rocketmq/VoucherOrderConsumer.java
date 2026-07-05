@@ -2,6 +2,7 @@ package com.flashdeal.rocketmq;
 
 import com.flashdeal.common.constant.MessageConstant;
 import com.flashdeal.common.constant.RedisKeyConstant;
+import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.domain.VoucherOrder;
 import com.flashdeal.common.exception.BusinessException;
 import com.flashdeal.service.IVoucherOrderService;
@@ -11,10 +12,12 @@ import org.apache.rocketmq.spring.annotation.MessageModel;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 
 /**
  * 秒杀订单 MQ 消费者
@@ -30,6 +33,9 @@ import java.time.LocalDateTime;
 )
 @RequiredArgsConstructor
 public class VoucherOrderConsumer implements RocketMQListener<VoucherOrder> {
+
+    private static final DefaultRedisScript<Long> ROLLBACK_SCRIPT =
+            LuaScriptUtil.load("lua/rollback.lua", Long.class);
 
     private final IVoucherOrderService voucherOrderService;
     private final StringRedisTemplate stringRedisTemplate;
@@ -68,12 +74,14 @@ public class VoucherOrderConsumer implements RocketMQListener<VoucherOrder> {
             return;
         }
 
-        // 订单未写入，回滚 Redis 库存与购买资格
+        // 订单未写入，原子回滚 Redis 库存与购买资格
         String stockKey = RedisKeyConstant.getSeckillVoucherStockKey(order.getVoucherId());
         String orderKey = RedisKeyConstant.getSeckillVoucherOrderKey(order.getVoucherId());
-        stringRedisTemplate.opsForValue().increment(stockKey);
-        stringRedisTemplate.opsForSet().remove(orderKey, String.valueOf(order.getUserId()));
-        stringRedisTemplate.opsForValue().set(idempotencyKey, "FAILED", Duration.ofHours(24));
+        stringRedisTemplate.execute(
+                ROLLBACK_SCRIPT,
+                Arrays.asList(stockKey, orderKey, idempotencyKey),
+                String.valueOf(order.getUserId()), "FAIL", "86400"
+        );
 
         // 结构化留痕，便于人工核查
         SeckillFailRecord record = new SeckillFailRecord(

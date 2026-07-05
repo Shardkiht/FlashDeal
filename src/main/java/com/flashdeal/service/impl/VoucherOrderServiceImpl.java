@@ -66,6 +66,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT =
             LuaScriptUtil.load("lua/seckill.lua", Long.class);
+    private static final DefaultRedisScript<Long> ROLLBACK_SCRIPT =
+            LuaScriptUtil.load("lua/rollback.lua", Long.class);
 
     @Override
     public Result<String> seckillVoucher(Long voucherId) {
@@ -114,9 +116,11 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             log.info("MQ发送结果={}, orderId={}", sent, orderId);
             if (!sent) {
                 log.warn("MQ发送失败，回滚Redis库存，orderId={}", orderId);
-                stringRedisTemplate.opsForValue().increment(stockKey);
-                stringRedisTemplate.opsForSet().remove(orderKey, String.valueOf(userId));
-                stringRedisTemplate.delete(idempotencyKey); // 发送失败，清掉状态
+                stringRedisTemplate.execute(
+                        ROLLBACK_SCRIPT,
+                        Arrays.asList(stockKey, orderKey, idempotencyKey),
+                        String.valueOf(userId), "DELETE"
+                );
                 return Result.error("当前系统繁忙，请稍后重试");
             }
 
