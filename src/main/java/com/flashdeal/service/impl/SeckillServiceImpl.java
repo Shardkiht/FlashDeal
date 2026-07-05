@@ -5,18 +5,19 @@ import com.flashdeal.common.constant.MessageConstant;
 import com.flashdeal.common.constant.RedisKeyConstant;
 import com.flashdeal.common.utils.SnowflakeIdGenerate;
 import com.flashdeal.domain.Result;
-import com.flashdeal.domain.VoucherOrder;
+import com.flashdeal.domain.SeckillOrder;
 import com.flashdeal.common.exception.BusinessException;
-import com.flashdeal.mapper.VoucherOrderMapper;
-import com.flashdeal.rocketmq.VoucherOrderProducer;
-import com.flashdeal.service.ISeckillVoucherService;
-import com.flashdeal.service.IVoucherOrderService;
+import com.flashdeal.mapper.SeckillOrderMapper;
+import com.flashdeal.rocketmq.SeckillProducer;
+import com.flashdeal.service.api.SeckillService;
+import com.flashdeal.service.api.SeckillVoucherService;
 import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.common.utils.UserHolder;
 import io.lettuce.core.RedisCommandTimeoutException;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.env.Environment;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -28,27 +29,31 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 
 /**
- * 优惠券订单服务实现类
+ * 秒杀服务实现类
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
+public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillOrder> implements SeckillService {
 
     private final SnowflakeIdGenerate snowflakeIdGenerate;
     private final StringRedisTemplate stringRedisTemplate;
-    private final VoucherOrderProducer voucherOrderProducer;
-    private final ISeckillVoucherService seckillVoucherService;
+    private final SeckillProducer seckillProducer;
+    private final SeckillVoucherService seckillVoucherService;
+    private final Environment environment;
 
-    // 初始化秒杀库存到Redis，仅测试时使用
     @PostConstruct
     public void initSeckillStock() {
+        if (!Arrays.asList(environment.getActiveProfiles()).contains("dev")) {
+            log.info("非 dev 环境，跳过 Redis 库存初始化");
+            return;
+        }
         log.info("开始初始化秒杀库存到Redis...");
         var seckillVouchers = seckillVoucherService.list();
 
         for (var voucher : seckillVouchers) {
-            String stockKey = RedisKeyConstant.getSeckillVoucherStockKey(voucher.getVoucherId());
-            String orderKey = RedisKeyConstant.getSeckillVoucherOrderKey(voucher.getVoucherId());
+            String stockKey = RedisKeyConstant.getSeckillStockKey(voucher.getId());
+            String orderKey = RedisKeyConstant.getSeckillOrderKey(voucher.getId());
 
             // 1. 先清空旧的库存和订单记录
             stringRedisTemplate.delete(stockKey);
@@ -57,7 +62,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             // 2. 从数据库读取库存并设置到Redis
             Long currentStock = stringRedisTemplate.opsForValue().increment(stockKey, voucher.getStock());
             if (currentStock != null) {
-                log.info("初始化秒杀券ID={}, 库存={}", voucher.getVoucherId(), currentStock);
+                log.info("初始化秒杀券ID={}, 库存={}", voucher.getId(), currentStock);
             }
         }
 
@@ -66,17 +71,13 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT =
             LuaScriptUtil.load("lua/seckill.lua", Long.class);
-    private static final DefaultRedisScript<Long> ROLLBACK_SCRIPT =
-            LuaScriptUtil.load("lua/rollback.lua", Long.class);
 
     @Override
     public Result<String> seckillVoucher(Long voucherId) {
-        Long orderId = snowflakeIdGenerate.nextId();
         Long userId = UserHolder.getCurrentId();
-        log.info("生成订单ID={}, userId={}", orderId, userId);
 
-        String stockKey = RedisKeyConstant.getSeckillVoucherStockKey(voucherId);
-        String orderKey = RedisKeyConstant.getSeckillVoucherOrderKey(voucherId);
+        String stockKey = RedisKeyConstant.getSeckillStockKey(voucherId);
+        String orderKey = RedisKeyConstant.getSeckillOrderKey(voucherId);
         String idempotencyKey = RedisKeyConstant.getConsumedKey(userId, voucherId);
 
         try {
@@ -84,12 +85,16 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             Long result = stringRedisTemplate.execute(
                     SECKILL_SCRIPT,
                     Arrays.asList(stockKey, orderKey),
-                    String.valueOf(userId),
-                    String.valueOf(orderId)
+                    String.valueOf(userId)
             );
-            log.info("Lua脚本执行结果={}, orderId={}", result, orderId);
 
-            // 2. 结果判断
+            // 2. 结果判空与判断
+            if (result == null) {
+                // Lua 脚本或 Redis 调用异常，退化处理
+                log.error("Lua脚本返回 null，voucherId={}, userId={}", voucherId, userId);
+                return Result.error("当前系统繁忙，请稍后重试");
+            }
+
             if (result != 0) {
                 return Result.error(result == 1
                         ? MessageConstant.VOUCHER_INSUFFICIENT
@@ -97,7 +102,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             }
 
             // 3. 创建订单对象
-            VoucherOrder voucherOrder = VoucherOrder.builder()
+            Long orderId = snowflakeIdGenerate.nextId();
+            SeckillOrder seckillOrder = SeckillOrder.builder()
                     .id(orderId)
                     .userId(userId)
                     .voucherId(voucherId)
@@ -110,22 +116,27 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             // 4. MQ发送前先标记 PROCESSING，让用户及时感知这个订单正在处理
             stringRedisTemplate.opsForValue().set(idempotencyKey, "PROCESSING", Duration.ofHours(24));
 
-            // 5. 同步发送 MQ，失败立即回滚 Redis 库存
-            log.info("开始发送MQ, orderId={}", orderId);
-            boolean sent = voucherOrderProducer.sendOrderSync(voucherOrder, 5000);
-            log.info("MQ发送结果={}, orderId={}", sent, orderId);
-            if (!sent) {
-                log.warn("MQ发送失败，回滚Redis库存，orderId={}", orderId);
-                stringRedisTemplate.execute(
-                        ROLLBACK_SCRIPT,
-                        Arrays.asList(stockKey, orderKey, idempotencyKey),
-                        String.valueOf(userId), "DELETE"
-                );
+            // 5. 异步发送 MQ，失败回调自动回滚 Redis 库存
+            log.info("开始异步发送MQ, orderId={}", orderId);
+            try {
+                seckillProducer.sendOrderAsync(seckillOrder, stockKey, orderKey, idempotencyKey);
+            } catch (Exception ex) {
+                log.error("异步发送 MQ 同步异常，回滚 Redis 并返回错误, orderId={}", orderId, ex);
+                try {
+                    DefaultRedisScript<Long> rollbackScript = LuaScriptUtil.load("lua/rollback.lua", Long.class);
+                    stringRedisTemplate.execute(
+                            rollbackScript,
+                            Arrays.asList(stockKey, orderKey, idempotencyKey),
+                            String.valueOf(userId), "DELETE"
+                    );
+                } catch (Exception rex) {
+                    log.error("回滚 Redis 也失败, orderId={}", orderId, rex);
+                }
                 return Result.error("当前系统繁忙，请稍后重试");
             }
 
             // 返回"处理中"，前端轮询用户最近的秒杀订单状态
-            return Result.success("处理中");
+            return Result.success("正在抢购中");
 
         } catch (RedisConnectionFailureException | RedisCommandTimeoutException | RedisSystemException e) {
             log.error("Redis 异常降级，voucherId={}, userId={}", voucherId, userId, e);
@@ -135,9 +146,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Override
     @Transactional
-    public void createVoucherOrder(VoucherOrder voucherOrder) {
-        Long userId = voucherOrder.getUserId();
-        Long voucherId = voucherOrder.getVoucherId();
+    public void createSeckillOrder(SeckillOrder seckillOrder) {
+        Long userId = seckillOrder.getUserId();
+        Long voucherId = seckillOrder.getVoucherId();
 
         // 确保一个用户只能购买一次
         Long count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
@@ -149,14 +160,41 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         // 扣减库存，防止超卖
         boolean result = seckillVoucherService.update()
                 .setSql("stock = stock - 1")
-                .eq("voucher_id", voucherId)
+                .eq("id", voucherId)
                 .gt("stock", 0)
                 .update();
         if (!result) {
             log.error(MessageConstant.VOUCHER_STOCK_NOT_ENOUGH);
             throw new BusinessException(MessageConstant.VOUCHER_STOCK_NOT_ENOUGH);
         }
-        save(voucherOrder);
+        save(seckillOrder);
 
+    }
+
+    @Override
+    public String querySeckillStatus(Long voucherId) {
+        Long userId = UserHolder.getCurrentId();
+        String idempotencyKey = RedisKeyConstant.getConsumedKey(userId, voucherId);
+
+        // 1. 先查 Redis
+        String status = stringRedisTemplate.opsForValue().get(idempotencyKey);
+
+        // 2. 查数据库（真相）
+        Long count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+
+        if (count > 0) {
+            // 数据库有订单，Redis 不一致则修复
+            if (!"SUCCESS".equals(status)) {
+                stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS", Duration.ofHours(24));
+            }
+            return "SUCCESS";
+        }
+
+        // 3. 数据库无订单
+        if ("PROCESSING".equals(status)) {
+            return "PROCESSING";
+        }
+
+        return "UNKNOWN";
     }
 }

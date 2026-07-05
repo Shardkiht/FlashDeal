@@ -1,4 +1,4 @@
-package com.flashdeal.service;
+package com.flashdeal.service.api;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.flashdeal.domain.SeckillVoucher;
