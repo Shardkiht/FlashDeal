@@ -1,8 +1,8 @@
 package com.flashdeal.controller;
 
 import com.flashdeal.domain.Result;
-import com.flashdeal.domain.Voucher;
-import com.flashdeal.service.IVoucherService;
+import com.flashdeal.domain.SeckillVoucher;
+import com.flashdeal.service.api.SeckillVoucherService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,17 +17,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class TestController {
 
-    private final IVoucherService voucherService;
+    private final SeckillVoucherService seckillVoucherService;
 
     /**
      * 添加秒杀优惠券
      *
-     * @param voucher 优惠券信息
+     * @param seckillVoucher 秒杀优惠券信息
      * @return 成功结果
      */
     @PostMapping("/voucher/seckill")
-    public Result addSeckillVoucher(@RequestBody Voucher voucher) {
-        voucherService.addSeckillVoucher(voucher);
-        return Result.success();
+    public Result<String> addSeckillVoucher(@RequestBody SeckillVoucher seckillVoucher) {
+        seckillVoucherService.addSeckillVoucher(seckillVoucher);
+        return Result.success("添加成功");
     }
 }

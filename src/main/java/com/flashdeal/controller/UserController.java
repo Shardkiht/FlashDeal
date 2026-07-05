@@ -5,7 +5,7 @@ import com.flashdeal.domain.Result;
 import com.flashdeal.domain.User;
 import com.flashdeal.domain.dto.UserLoginDTO;
 import com.flashdeal.common.properties.JwtProperties;
-import com.flashdeal.service.UserService;
+import com.flashdeal.service.api.UserService;
 import com.flashdeal.common.utils.JwtUtil;
 import com.flashdeal.domain.vo.UserLoginVO;
 import lombok.RequiredArgsConstructor;

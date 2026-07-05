@@ -1,4 +1,4 @@
-package com.flashdeal.service;
+package com.flashdeal.service.api;
 
 import com.flashdeal.domain.User;
 import com.flashdeal.domain.dto.UserLoginDTO;

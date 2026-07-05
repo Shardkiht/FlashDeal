@@ -5,7 +5,7 @@ import com.flashdeal.domain.User;
 import com.flashdeal.domain.dto.UserLoginDTO;
 import com.flashdeal.common.exception.LoginFailedException;
 import com.flashdeal.mapper.UserMapper;
-import com.flashdeal.service.UserService;
+import com.flashdeal.service.api.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

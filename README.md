@@ -31,18 +31,18 @@
 
 ## ✨ 核心特性
 
-| 特性             | 实现方式                              | 说明                                                 |
-|:---------------|:----------------------------------|:---------------------------------------------------|
-| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，超出直接拒绝，压测中拦截 87% 请求                |
-| 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时                               |
-| ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态                     |
-| 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式           |
-| 🗄️ **库存预热**   | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （目前代码仅限测试使用）             |
-| 📨 **异步落库**    | RocketMQ 同步发送                     | Redis 预扣成功后异步写 DB，发送失败通过 `rollback.lua` 原子回滚       |
-| 🔒 **DB 乐观锁**  | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                   |
-| 🛡️ **三态幂等**   | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                           |
-| 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0` |
-| 🔄 **失败补偿**    | Redis Lua 原子回滚 + 结构化留痕            | MQ 发送失败 / 消费业务异常时原子回滚库存，失败记录便于人工核查                 |
+| 特性             | 实现方式                              | 说明                                                                     |
+|:---------------|:----------------------------------|:-----------------------------------------------------------------------|
+| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，超出直接拒绝，压测中拦截 87% 请求                                    |
+| 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时                                                   |
+| ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态（已购用户集合 orderKey 的 TTL 在 Java 层设置为 30 天） |
+| 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式                               |
+| 🗄️ **库存预热**   | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （目前代码仅限测试使用）                                 |
+| 📨 **异步落库**    | RocketMQ 异步发送                     | Redis 预扣成功后异步写 DB；SeckillProducer 在内部捕获 asyncSend 的异常并处理               |
+| 🔒 **DB 乐观锁**  | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                                       |
+| 🛡️ **三态幂等**   | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                                               |
+| 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0`                     |
+| 🔄 **失败补偿**    | Redis Lua 原子回滚 + 结构化留痕            | MQ 发送失败 / 消费业务异常时原子回滚库存，失败记录便于人工核查                                     |
 
 ---
 
@@ -79,11 +79,11 @@ flowchart TB
     end
 
     subgraph App["应用层 Spring Boot"]
-        CTRL["VoucherOrderController"]
-        SVC["VoucherOrderServiceImpl"]
+        CTRL["SeckillController"]
+        SVC["SeckillServiceImpl"]
         IDG["SnowflakeIdGenerate<br/>全局唯一 ID"]
-        PROD["VoucherOrderProducer"]
-        CONS["VoucherOrderConsumer"]
+        PROD["SeckillProducer"]
+        CONS["SeckillConsumer"]
     end
 
     subgraph Cache["缓存层 Redis"]
@@ -184,7 +184,7 @@ flowchart TD
 flowchart TD
     MSG([收到 MQ 订单消息]) --> STATUS{读取幂等键状态}
     STATUS -->|SUCCESS/FAILED| SKIP[已是终态, 跳过]
-    STATUS -->|PROCESSING/不存在| CREATE[创建订单<br/>createVoucherOrder]
+    STATUS -->|PROCESSING/不存在| CREATE[创建订单<br/>createSeckillOrder]
 
     CREATE --> DBSAVE{DB 操作}
     DBSAVE -->|成功| MARK[标记 SUCCESS]
@@ -194,7 +194,7 @@ flowchart TD
     CHECK -->|已落库| MARK2[标记 SUCCESS<br/>不回滚]
     MARK2 --> DONE
     CHECK -->|未落库| RBLUA2[执行 rollback.lua<br/>原子回滚库存+资格+标记FAILED]
-    RBLUA2 --> RECORD[SeckillFailRecord<br/>结构化留痕]
+    RBLUA2 --> RECORD[SeckillFailLog<br/>结构化留痕]
     RECORD --> DONE
 
     DBSAVE -->|系统异常| THROW1[抛出异常<br/>触发 MQ 重试]
@@ -230,28 +230,25 @@ FlashDeal
 │   │   │   ├── FlashDealApplication.java        # 启动类
 │   │   │   ├── controller/                      # 控制层
 │   │   │   │   ├── UserController.java          # 用户登录
-│   │   │   │   ├── VoucherOrderController.java  # 秒杀下单+状态查询入口
+│   │   │   │   ├── SeckillController.java       # 秒杀下单+状态查询入口
 │   │   │   │   └── TestController.java          # 测试: 添加秒杀券
 │   │   │   ├── service/                         # 服务层
 │   │   │   │   ├── UserService.java
-│   │   │   │   ├── IVoucherService.java
-│   │   │   │   ├── ISeckillVoucherService.java
-│   │   │   │   ├── IVoucherOrderService.java
+│   │   │   │   ├── SeckillVoucherService.java
+│   │   │   │   ├── SeckillService.java
 │   │   │   │   └── impl/
 │   │   │   │       ├── UserServiceImpl.java
-│   │   │   │       ├── VoucherServiceImpl.java          # 添加秒杀券+同步库存到Redis
-│   │   │   │       ├── SeckillVoucherServiceImpl.java
-│   │   │   │       └── VoucherOrderServiceImpl.java     # ⭐ 秒杀核心逻辑
+│   │   │   │       ├── SeckillVoucherServiceImpl.java   # 添加秒杀券+同步库存到Redis
+│   │   │   │       └── SeckillServiceImpl.java          # ⭐ 秒杀核心逻辑
 │   │   │   ├── rocketmq/                        # MQ 生产/消费
-│   │   │   │   ├── VoucherOrderProducer.java    # 同步发送（补偿队列方法预留未启用）
-│   │   │   │   ├── VoucherOrderConsumer.java    # 幂等消费+失败回滚
-│   │   │   │   └── SeckillFailRecord.java       # 失败核查记录实体
+│   │   │   │   ├── SeckillProducer.java         # 异步发送+失败回滚
+│   │   │   │   ├── SeckillConsumer.java         # 幂等消费+失败回滚
+│   │   │   │   └── SeckillFailLog.java          # 失败核查记录实体
 │   │   │   ├── mapper/                          # MyBatis Plus Mapper
 │   │   │   ├── domain/                          # 实体与 DTO/VO
 │   │   │   │   ├── User.java
-│   │   │   │   ├── Voucher.java
 │   │   │   │   ├── SeckillVoucher.java
-│   │   │   │   ├── VoucherOrder.java
+│   │   │   │   ├── SeckillOrder.java
 │   │   │   │   ├── Result.java                  # 统一返回结果
 │   │   │   │   ├── dto/UserLoginDTO.java
 │   │   │   │   └── vo/UserLoginVO.java
@@ -473,7 +470,7 @@ Content-Type: application/json
 ### 秒杀下单（核心接口）
 
 ```http
-POST /user/voucher-order/seckill/{id}
+POST /user/seckill/{id}
 Authorization: Bearer <登录返回的 token>
 ```
 
@@ -494,7 +491,7 @@ Authorization: Bearer <登录返回的 token>
 ### 查询秒杀订单状态
 
 ```http
-GET /user/voucher-order/seckill/status/{voucherId}
+GET /user/seckill/status/{voucherId}
 Authorization: Bearer <登录返回的 token>
 ```
 
@@ -574,9 +571,12 @@ redis.call('incr', stockKey)              -- 回补库存
 redis.call('srem', orderKey, userId)      -- 移除用户购买记录
 if mode == "DELETE" then
     redis.call('del', idempotencyKey)     -- MQ 发送失败：清除幂等键
-else
-    redis.call('set', idempotencyKey, "FAILED", "EX", ttlSeconds)  -- 消费失败：标记 FAILED
+    return 1
 end
+
+-- FAIL 模式：标记失败并设置过期时间
+redis.call('set', idempotencyKey, "FAILED", "EX", tonumber(ttlSeconds))
+return 1
 ```
 
 > 预扣脚本先 `sadd` 再 `decr`，相比 `sismember` + `sadd` + `decr` 三步，减少一次 Redis 调用，同时利用 `sadd` 的返回值天然完成判重。
@@ -660,7 +660,7 @@ chmod +x seckill_test.sh single_user_test.sh
 - [x] DB 乐观锁防重复
 - [x] 三态幂等与状态查询接口
 - [x] 失败补偿与 Lua 原子回滚
-- [x] 结构化失败留痕（SeckillFailRecord）
+- [x] 结构化失败留痕（SeckillFailLog）
 - [x] 接口压测脚本（wrk）
 - [ ] Docker Compose 一键部署
 - [ ] Prometheus + Grafana 监控

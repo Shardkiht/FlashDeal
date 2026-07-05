@@ -6,13 +6,13 @@ package com.flashdeal.common.constant;
  */
 public class RedisKeyConstant {
 
-    // 秒杀优惠券库存
-    public static String getSeckillVoucherStockKey(Long id) {
+    // 秒杀券库存
+    public static String getSeckillStockKey(Long id) {
         return "seckill:{" + id + "}:stock";
     }
 
-    // 秒杀优惠券订单
-    public static String getSeckillVoucherOrderKey(Long id) {
+    // 秒杀券订单
+    public static String getSeckillOrderKey(Long id) {
         return "seckill:{" + id + "}:order";
     }
 
