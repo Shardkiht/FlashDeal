@@ -112,7 +112,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
             // 5. 同步发送 MQ，失败立即回滚 Redis 库存
             log.info("开始发送MQ, orderId={}", orderId);
-            boolean sent = voucherOrderProducer.sendOrderSync(voucherOrder, 10000);
+            boolean sent = voucherOrderProducer.sendOrderSync(voucherOrder, 5000);
             log.info("MQ发送结果={}, orderId={}", sent, orderId);
             if (!sent) {
                 log.warn("MQ发送失败，回滚Redis库存，orderId={}", orderId);
