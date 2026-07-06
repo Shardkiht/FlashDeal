@@ -34,7 +34,7 @@ public class SeckillController {
      * 查询秒杀订单处理状态
      *
      * @param voucherId 优惠券id
-     * @return 状态：PROCESSING/SUCCESS/FAILED/UNKNOWN
+     * @return 状态：PROCESSING/SUCCESS/FAILED
      */
     @GetMapping("/status/{voucherId}")
     public Result<String> queryOrderStatus(@PathVariable Long voucherId) {
