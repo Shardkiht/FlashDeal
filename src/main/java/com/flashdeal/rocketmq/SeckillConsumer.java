@@ -15,7 +15,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 
@@ -60,7 +59,7 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrder> {
 
         try {
             seckillService.createSeckillOrder(order);
-            stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS", Duration.ofHours(24));
+            stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS");
         } catch (BusinessException e) {
             // 确定性失败：不重试，直接终结
             log.error("业务异常, orderId={}", order.getId(), e);
@@ -79,7 +78,7 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrder> {
         if (count > 0) {
             // 2. 订单已存在，标记 SUCCESS
             try {
-                stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS", Duration.ofHours(24));
+                stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS");
             } catch (Exception e) {
                 log.error("标记SUCCESS失败, orderId={}, 前端查询请求任务兜底", order.getId(), e);
             }

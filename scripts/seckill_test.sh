@@ -14,7 +14,7 @@ TOKEN_FILE="$SCRIPT_DIR/tokens.txt"
 LUA_SCRIPT="$SCRIPT_DIR/wrk_seckill_multi_user.lua"
 
 # 参数配置（可自定义）
-USER_COUNT=${1:-1000}      # 模拟用户数
+USER_COUNT=${1:-5000}      # 模拟用户数
 CONCURRENCY=${2:-200}      # 并发连接数
 DURATION=${3:-30s}        # 压测持续时间
 VOUCHER_ID=${4:-1}        # 优惠券ID
@@ -25,41 +25,42 @@ if [ "$THREADS" -gt 8 ]; then
     THREADS=8
 fi
 
-echo ""
 echo "========================================"
 echo " FlashDeal 秒杀压测"
 echo "========================================"
 echo "用户: $USER_COUNT | 并发: $CONCURRENCY | 时长: $DURATION | 券ID: $VOUCHER_ID"
 echo "========================================"
-echo ""
 
-# Step 1: 获取 Token（静默模式）
+# Step 1: 获取 Token（并行模式）
 printf "获取 %d 个 Token... " "$USER_COUNT"
 
 > "$TOKEN_FILE"
 
-for i in $(seq 1 "$USER_COUNT"); do
-    phone="1380000$(printf '%04d' $i)"
-    response=$(curl -s -X POST "$BASE_URL/user/login" \
+fetch_token() {
+    local i=$1
+    local phone="1380000$(printf '%04d' $i)"
+    local response=$(curl -s -X POST "$BASE_URL/user/login" \
         -H "Content-Type: application/json" \
         -d "{\"phone\": \"$phone\"}")
 
-    token=$(echo "$response" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-    user_id=$(echo "$response" | grep -o '"id":[0-9]*' | cut -d':' -f2)
+    local token=$(echo "$response" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+    local user_id=$(echo "$response" | grep -o '"id":[0-9]*' | cut -d':' -f2)
 
     if [ -n "$token" ]; then
-        echo "$user_id|$phone|$token" >> "$TOKEN_FILE"
+        echo "$user_id|$phone|$token"
     fi
-done
+}
+
+export -f fetch_token
+export BASE_URL TOKEN_FILE
+
+seq 1 "$USER_COUNT" | xargs -P 50 -I {} bash -c 'fetch_token "$@"' _ {} >> "$TOKEN_FILE"
 
 echo "✓ 完成"
-echo ""
 
 # Step 2: 运行 wrk 压测
-wrk -t"$THREADS" -c"$CONCURRENCY" -d"$DURATION" -s "$LUA_SCRIPT" "$BASE_URL/user/voucher-order/seckill/$VOUCHER_ID"
+wrk -t"$THREADS" -c"$CONCURRENCY" -d"$DURATION" -s "$LUA_SCRIPT" "$BASE_URL/user/seckill/$VOUCHER_ID"
 
-echo ""
 echo "========================================"
 echo "🎉 压测完成！"
 echo "========================================"
-echo ""
