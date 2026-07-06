@@ -79,7 +79,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
 
         try {
             // 1. 执行 Lua 脚本判断购买资格并预扣减 Redis 库存
-            Long result = stringRedisTemplate.execute(
+            long result = stringRedisTemplate.execute(
                     SECKILL_SCRIPT,
                     Arrays.asList(stockKey, orderKey),
                     String.valueOf(userId)
@@ -171,6 +171,6 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
             return "PROCESSING";
         }
 
-        return "UNKNOWN";
+        return "FAILED";
     }
 }

@@ -71,7 +71,7 @@
 |:---------------|:----------------------------------|:-----------------------------------------------------------------------|
 | 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，压测中拦截 92.43% 请求，超出直接返回 HTTP 429                                    |
 | 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时，从 `authentication` header 提取                                                   |
-| ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态（已购用户集合 orderKey 的 TTL 在 Java 层设置为 30 天） |
+| ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态                                                |
 | 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式                               |
 | ️ **库存预热**   | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （仅 dev 环境）                                 |
 | 📨 **异步落库**    | RocketMQ 异步发送                     | Redis 预扣成功后异步发送 MQ；SeckillProducer 捕获 asyncSend 异常并回滚               |
@@ -221,7 +221,7 @@ flowchart TD
     MSG([收到 MQ 订单消息]) --> STATUS{读取幂等键状态}
     STATUS -->|SUCCESS/FAILED| SKIP[已是终态, 跳过]
     STATUS -->|PROCESSING| CREATE[创建订单<br/>createSeckillOrder]
-    STATUS -->|不存在| HANDLEFAIL[handleFail<br/>查库兆底]
+    STATUS -->|不存在| HANDLEFAIL[handleFail<br/>查库兜底]
 
     CREATE --> DBSAVE{DB 操作}
     DBSAVE -->|成功| MARK[标记 SUCCESS]
@@ -550,8 +550,7 @@ authentication: <登录返回的 token>
 |:-------------|:--------------|
 | `PROCESSING` | 订单正在处理中       |
 | `SUCCESS`    | 订单创建成功        |
-| `FAILED`     | 订单创建失败（已回滚库存） |
-| `UNKNOWN`    | 订单不存在或状态已过期   |
+| `FAILED`     | 订单创建失败（已回滚库存）或 DB 无订单且 Redis 状态丢失 |
 
 **库存不足：**
 
