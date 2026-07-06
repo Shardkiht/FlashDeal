@@ -24,7 +24,9 @@ function init(args)
     local file = nil
     for _, path in ipairs(file_paths) do
         file = io.open(path, "r")
-        if file then break end
+        if file then
+            break
+        end
     end
     if not file then
         print("ERROR: tokens.txt not found")
@@ -53,7 +55,9 @@ function init(args)
 end
 
 function request()
-    if preq_count == 0 then return nil end
+    if preq_count == 0 then
+        return nil
+    end
     local idx = math.random(1, preq_count)
     return preq[idx]
 end
@@ -66,7 +70,9 @@ function response(status, headers, body)
     end
 
     local body_str = body and tostring(body) or ""
-    if body_str == "" then return end
+    if body_str == "" then
+        return
+    end
 
     if string.find(body_str, '"code":1') then
         t:set("success", t:get("success") + 1)
@@ -96,8 +102,8 @@ function done(summary, latency, requests)
     local t_limited, t_stock, t_repeat, t_success = 0, 0, 0, 0
     for _, thread in ipairs(threads) do
         t_limited = t_limited + (thread:get("rate_limited") or 0)
-        t_stock   = t_stock + (thread:get("stock_empty") or 0)
-        t_repeat  = t_repeat + (thread:get("repeat_order") or 0)
+        t_stock = t_stock + (thread:get("stock_empty") or 0)
+        t_repeat = t_repeat + (thread:get("repeat_order") or 0)
         t_success = t_success + (thread:get("success") or 0)
     end
 
@@ -109,7 +115,7 @@ function done(summary, latency, requests)
     print("重复下单: " .. t_repeat .. " (" .. string.format("%.2f", t_repeat / n * 100) .. "%)")
     print("成功/处理中: " .. t_success .. " (" .. string.format("%.2f", t_success / n * 100) .. "%)")
     print("延迟: avg=" .. string.format("%.2f", avg_ms) ..
-          "ms p50=" .. string.format("%.2f", p50_ms) ..
-          "ms p99=" .. string.format("%.2f", p99_ms) .. "ms")
+            "ms p50=" .. string.format("%.2f", p50_ms) ..
+            "ms p99=" .. string.format("%.2f", p99_ms) .. "ms")
     print("========================================\n")
 end
