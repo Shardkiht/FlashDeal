@@ -33,27 +33,22 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
     private static final String LIMITER_KEY = "seckill:limiter";
 
+    private RRateLimiter rateLimiter;
+
     @PostConstruct
     public void initRateLimiter() {
-        RRateLimiter limiter = redissonClient.getRateLimiter(LIMITER_KEY);
-        if (!limiter.trySetRate(RateType.OVERALL, rate, 1, RateIntervalUnit.SECONDS)) {
-            log.warn("限流器配置已存在，删除旧配置后重新设置");
-            limiter.delete();
-            limiter.trySetRate(RateType.OVERALL, rate, 1, RateIntervalUnit.SECONDS);
-        }
-        log.info("全局限流器初始化完成，rate={} req/s", rate);
+        rateLimiter = redissonClient.getRateLimiter(LIMITER_KEY);
+        rateLimiter.trySetRate(RateType.OVERALL, rate, 1, RateIntervalUnit.SECONDS);
+        log.info("限流器初始化完成, rate={}/s", rate);
     }
 
     @Override
     public boolean preHandle(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler) throws Exception {
-        RRateLimiter limiter = redissonClient.getRateLimiter(LIMITER_KEY);
-        if (!limiter.tryAcquire()) {
-            log.warn("请求被限流拦截, URI: {}", request.getRequestURI());
-            response.setStatus(200);
+        if (rateLimiter != null && !rateLimiter.tryAcquire(1)) {
+            log.warn("请求被限流, uri={}", request.getRequestURI());
+            response.setStatus(429);
             response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write(objectMapper.writeValueAsString(
-                    Result.error("当前系统繁忙，请稍后重试")
-            ));
+            response.getWriter().write(objectMapper.writeValueAsString(Result.error("RATE_LIMIT")));
             return false;
         }
         return true;

@@ -24,7 +24,6 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 
@@ -99,10 +98,6 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
                         : MessageConstant.REPEAT_ORDER);
             }
 
-            // 设置已购用户集合过期，避免集合无限增长（30天），写在 Java 层以避免在 Lua 中增加额外开销
-            stringRedisTemplate.expire(orderKey, Duration.ofDays(30));
-
-
             // 3. 创建订单对象
             Long orderId = snowflakeIdGenerate.nextId();
             SeckillOrder seckillOrder = SeckillOrder.builder()
@@ -116,7 +111,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
                     .build();
 
             // 4. MQ发送前先标记 PROCESSING，让用户及时感知这个订单正在处理
-            stringRedisTemplate.opsForValue().set(idempotencyKey, "PROCESSING", Duration.ofHours(24));
+            stringRedisTemplate.opsForValue().set(idempotencyKey, "PROCESSING");
 
             // 5. 异步发送 MQ，失败回调自动回滚 Redis 库存
             log.info("开始异步发送MQ, orderId={}", orderId);
@@ -166,13 +161,13 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
         // 1. 先查 Redis
         String status = stringRedisTemplate.opsForValue().get(idempotencyKey);
 
-        // 2. 查数据库（真相）
+        // 2. 查数据库
         Long count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
 
         if (count > 0) {
             // 数据库有订单，Redis 不一致则修复
             if (!"SUCCESS".equals(status)) {
-                stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS", Duration.ofHours(24));
+                stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS");
             }
             return "SUCCESS";
         }

@@ -1,31 +1,33 @@
 -- scripts/wrk_seckill_multi_user.lua
--- 多用户 Token 轮询压测脚本（静默版）
+-- 多用户 Token 轮询压测脚本
 
 local tokens = {}
 local token_count = 0
-local RATE_LIMITED_FILE = "/tmp/wrk_rate_limited.txt"
+local threads = {}
+local preq = {}
+local preq_count = 0
+
+-- setup 和 done 共享同一个 Lua 状态，局部变量 threads 两者均可访问
+function setup(thread)
+    thread:set("rate_limited", 0)
+    thread:set("stock_empty", 0)
+    thread:set("repeat_order", 0)
+    thread:set("success", 0)
+    table.insert(threads, thread)
+end
 
 function init(args)
-    math.randomseed(os.time())
-    wrk.method = "POST"
-    wrk.headers["Content-Type"] = "application/json"
+    math.randomseed(os.time() + math.random(1, 10000))
 
-    -- 每个线程独立加载 tokens（支持多种路径）
-    local file_paths = {
-        "scripts/tokens.txt",
-        "tokens.txt",
-        "./tokens.txt"
-    }
-
+    -- 加载 tokens
+    local file_paths = { "scripts/tokens.txt", "tokens.txt", "./tokens.txt" }
     local file = nil
     for _, path in ipairs(file_paths) do
         file = io.open(path, "r")
-        if file then
-            break
-        end
+        if file then break end
     end
-
     if not file then
+        print("ERROR: tokens.txt not found")
         return
     end
 
@@ -33,89 +35,79 @@ function init(args)
         local user_id, phone, token = line:match("([^|]+)|([^|]+)|(.+)")
         if token then
             token_count = token_count + 1
-            tokens[token_count] = {
-                user_id = user_id,
-                phone = phone,
-                token = token
-            }
+            tokens[token_count] = token
         end
     end
     file:close()
+    print("Loaded " .. token_count .. " tokens")
 
-    -- 清空计数器文件（只由第一个线程执行，简单处理）
-    if token_count > 0 and math.random(1, 100) <= 1 then
-        local counter_file = io.open(RATE_LIMITED_FILE, "w")
-        if counter_file then
-            counter_file:write("")
-            counter_file:close()
-        end
+    -- 预构建请求（wrk.format 会消费 headers，只调用一次）
+    for i = 1, token_count do
+        local hdrs = {
+            ["Content-Type"] = "application/json",
+            ["authentication"] = tokens[i]
+        }
+        preq[i] = wrk.format("POST", "/user/seckill/1", hdrs, nil)
     end
+    preq_count = token_count
 end
 
--- 生成请求（使用局部 headers，避免全局竞争）
 function request()
-    if token_count == 0 then
-        return nil
-    end
-
-    -- 随机选择一个用户
-    local idx = math.random(1, token_count)
-    local user = tokens[idx]
-
-    -- 构建局部 headers
-    local req_headers = {
-        ["Content-Type"] = "application/json",
-        ["authentication"] = user.token
-    }
-
-    return wrk.format("POST", "/user/voucher-order/seckill/1", req_headers, nil)
+    if preq_count == 0 then return nil end
+    local idx = math.random(1, preq_count)
+    return preq[idx]
 end
 
--- 处理响应（统计限流）
 function response(status, headers, body)
-    local body_str = tostring(body or "")
-    if string.find(body_str, "RATE_LIMITED") then
-        -- 追加模式写入（多线程安全）
-        local counter_file = io.open(RATE_LIMITED_FILE, "a")
-        if counter_file then
-            counter_file:write("1\n")
-            counter_file:close()
+    local t = wrk.thread
+    if status == 429 then
+        t:set("rate_limited", t:get("rate_limited") + 1)
+        return
+    end
+
+    local body_str = body and tostring(body) or ""
+    if body_str == "" then return end
+
+    if string.find(body_str, '"code":1') then
+        t:set("success", t:get("success") + 1)
+    else
+        if string.find(body_str, "RATE_LIMIT") or string.find(body_str, "系统繁忙") then
+            t:set("rate_limited", t:get("rate_limited") + 1)
+        elseif string.find(body_str, "已卖完") or string.find(body_str, "库存不足") then
+            t:set("stock_empty", t:get("stock_empty") + 1)
+        elseif string.find(body_str, "不能重复下单") then
+            t:set("repeat_order", t:get("repeat_order") + 1)
         end
     end
 end
 
--- 压测结束统计
 function done(summary, latency, requests)
-    -- 等待一小段时间确保所有写入完成
-    os.execute("sleep 0.1")
-
-    -- 读取并汇总限流计数
-    local total_rate_limited = 0
-    local counter_file = io.open(RATE_LIMITED_FILE, "r")
-    if counter_file then
-        for line in counter_file:lines() do
-            total_rate_limited = total_rate_limited + tonumber(line)
-        end
-        counter_file:close()
-
-        -- 清理临时文件
-        os.remove(RATE_LIMITED_FILE)
-    end
-
-    -- 延迟单位转换：微秒 → 毫秒
     local avg_ms = latency.mean / 1000
     local p50_ms = latency:percentile(50) / 1000
     local p99_ms = latency:percentile(99) / 1000
+    local n = summary.requests
 
-    -- 计算 QPS（避免除零错误）
     local qps = 0
     if summary.duration and summary.duration > 0 then
-        qps = summary.requests / summary.duration
+        qps = n / (summary.duration / 1000000)
+    end
+
+    -- 汇总所有线程计数器
+    local t_limited, t_stock, t_repeat, t_success = 0, 0, 0, 0
+    for _, thread in ipairs(threads) do
+        t_limited = t_limited + (thread:get("rate_limited") or 0)
+        t_stock   = t_stock + (thread:get("stock_empty") or 0)
+        t_repeat  = t_repeat + (thread:get("repeat_order") or 0)
+        t_success = t_success + (thread:get("success") or 0)
     end
 
     print("\n========================================")
-    print("总请求: " .. summary.requests .. " | QPS: " .. string.format("%.0f", qps))
-    print("限流拦截: " .. total_rate_limited .. " (" .. string.format("%.2f", total_rate_limited / summary.requests * 100) .. "%)")
+    print("总请求: " .. n .. " | QPS: " .. string.format("%.0f", qps))
+    print("--- 业务分类 ---")
+    print("限流拦截: " .. t_limited .. " (" .. string.format("%.2f", t_limited / n * 100) .. "%)")
+    print("库存不足: " .. t_stock .. " (" .. string.format("%.2f", t_stock / n * 100) .. "%)")
+    print("重复下单: " .. t_repeat .. " (" .. string.format("%.2f", t_repeat / n * 100) .. "%)")
+    print("成功/处理中: " .. t_success .. " (" .. string.format("%.2f", t_success / n * 100) .. "%)")
     print("延迟: avg=" .. string.format("%.2f", avg_ms) ..
           "ms p50=" .. string.format("%.2f", p50_ms) ..
           "ms p99=" .. string.format("%.2f", p99_ms) .. "ms")
