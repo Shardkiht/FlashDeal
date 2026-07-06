@@ -12,7 +12,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.16-green.svg)](https://spring.io/projects/spring-boot)
 [![Redis](https://img.shields.io/badge/Redis-7-red.svg)](https://redis.io/)
 [![RocketMQ](https://img.shields.io/badge/RocketMQ-4.9.7-blue.svg)](https://rocketmq.apache.org/)
-[![MyBatis Plus](https://img.shields.io/badge/MyBatis%20Plus-3.5.8-brightgreen.svg)](https://baomidou.com/)
+[![MyBatis Plus](https://img.shields.io/badge/MyBatis%20Plus-3.5.16-brightgreen.svg)](https://baomidou.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
@@ -29,18 +29,54 @@
 
 ---
 
+## 📊 压测数据
+
+### 最新压测结果（5000用户 / 200连接 / 8线程 / 30s）
+
+```
+========================================
+总请求: 1,209,772 | QPS: 40,200
+--- 业务分类 ---
+限流拦截: 1,108,670 (92.43%)  ← Redisson 全局限流器拦截
+库存不足:    90,300 (7.53%)   ← Lua 脚本原子预扣拒绝
+重复下单:       453 (0.04%)   ← Lua sadd 判重拦截
+成功/处理中:    100 (0.01%)   ← 最终订单创建成功数
+延迟: avg=6.99ms p50=2.51ms p99=27.08ms
+========================================
+```
+
+### 关键验证结论
+
+| 验证项     | 预期      | 实际      | 状态 |
+|:---------|:--------|:--------|:---|
+| **超卖防护** | 0 超卖    | ✅ 0 超卖 | 通过 |
+| **重复下单** | 0 重复    | ✅ 453次被拦截 | 通过 |
+| **库存精准** | 100库存→100订单 | ✅ 100 订单成功 | 通过 |
+| **限流效果** | 3000 req/s 放行 | ✅ 约 3000 req/s 放行 | 通过 |
+| **响应时间** | p99 < 50ms | ✅ p99 = 27.08ms | 优秀 |
+
+### 性能分析
+
+- **QPS ~40,200**：wrk 压测工具实测，8 线程 200 连接并发
+- **限流拦截率 92.43%**：Redisson `RRateLimiter` 精准拦截超限请求，保护后端
+- **平均延迟 6.99ms**：Redis 预扣 + MQ 异步发送，性能优异
+- **冷启动特征**：单用户首次压测 p99~88ms（JVM 类加载、JIT 编译），后续趋于稳定
+- **分层防御生效**：限流层拦截 92% → Lua 层拦截 7.5% → DB 层兜底 0.04%
+
+---
+
 ## ✨ 核心特性
 
 | 特性             | 实现方式                              | 说明                                                                     |
 |:---------------|:----------------------------------|:-----------------------------------------------------------------------|
-| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，超出直接拒绝，压测中拦截 87% 请求                                    |
-| 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时                                                   |
+| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，压测中拦截 92.43% 请求，超出直接返回 HTTP 429                                    |
+| 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时，从 `authentication` header 提取                                                   |
 | ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态（已购用户集合 orderKey 的 TTL 在 Java 层设置为 30 天） |
 | 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式                               |
-| 🗄️ **库存预热**   | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （目前代码仅限测试使用）                                 |
-| 📨 **异步落库**    | RocketMQ 异步发送                     | Redis 预扣成功后异步写 DB；SeckillProducer 在内部捕获 asyncSend 的异常并处理               |
-| 🔒 **DB 乐观锁**  | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                                       |
-| 🛡️ **三态幂等**   | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                                               |
+| ️ **库存预热**   | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （仅 dev 环境）                                 |
+| 📨 **异步落库**    | RocketMQ 异步发送                     | Redis 预扣成功后异步发送 MQ；SeckillProducer 捕获 asyncSend 异常并回滚               |
+|  **DB 乐观锁**  | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                                       |
+| ️ **三态幂等**   | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                                               |
 | 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0`                     |
 | 🔄 **失败补偿**    | Redis Lua 原子回滚 + 结构化留痕            | MQ 发送失败 / 消费业务异常时原子回滚库存，失败记录便于人工核查                                     |
 
@@ -105,9 +141,9 @@ flowchart TB
 
     U -->|HTTP 请求| RL
     RL -->|放行| LI
-    RL -->|超限| REJ["拒绝: 系统繁忙"]
+    RL -->|超限| REJ["拒绝: RATE_LIMIT"]
     LI -->|Token 校验通过| CTRL
-    LI -->|无 Token/失效| UNAUTH["401 未登录"]
+    LI -->|无 Token/失效| UNAUTH["200: 用户未登录"]
     CTRL --> SVC
     SVC --> IDG
 
@@ -115,7 +151,7 @@ flowchart TB
     LUA --> STOCK
     LUA --> ORDER
     SVC -->|预扣成功| PROD
-    PROD -->|同步发送| TOPIC
+    PROD -->|异步发送| TOPIC
     PROD -.->|发送失败| RBLUA
     RBLUA --> STOCK
     RBLUA --> ORDER
@@ -142,9 +178,9 @@ flowchart TB
 ```mermaid
 flowchart TD
     START([用户发起秒杀请求]) --> LIMIT{限流器<br/>tryAcquire}
-    LIMIT -->|被限流| R1[返回: 系统繁忙]
+    LIMIT -->|被限流| R1[返回: RATE_LIMIT]
     LIMIT -->|放行| AUTH{JWT 校验}
-    AUTH -->|未登录| R2[返回: 401 未登录]
+    AUTH -->|未登录| R2[返回: 用户未登录]
     AUTH -->|已登录| GEN[生成全局唯一订单 ID<br/>Snowflake]
 
     GEN --> LUA[执行 Lua 脚本<br/>原子操作]
@@ -156,8 +192,8 @@ flowchart TD
 
     DECR --> BUILD[构建订单对象<br/>VoucherOrder]
     BUILD --> MARK[标记 PROCESSING<br/>写入三态幂等键]
-    MARK --> MQ{同步发送 RocketMQ<br/>超时 5s}
-    MQ -->|发送成功| OK[返回: 处理中<br/>前端轮询状态]
+    MARK --> MQ{异步发送 RocketMQ}
+    MQ -->|发送成功| OK[返回: 正在抢购中<br/>前端轮询状态]
     MQ -->|发送失败| ROLLBACK[执行 rollback.lua<br/>原子回滚库存+资格+状态]
     ROLLBACK --> R5[返回: 系统繁忙<br/>请稍后重试]
 
@@ -184,7 +220,8 @@ flowchart TD
 flowchart TD
     MSG([收到 MQ 订单消息]) --> STATUS{读取幂等键状态}
     STATUS -->|SUCCESS/FAILED| SKIP[已是终态, 跳过]
-    STATUS -->|PROCESSING/不存在| CREATE[创建订单<br/>createSeckillOrder]
+    STATUS -->|PROCESSING| CREATE[创建订单<br/>createSeckillOrder]
+    STATUS -->|不存在| HANDLEFAIL[handleFail<br/>查库兆底]
 
     CREATE --> DBSAVE{DB 操作}
     DBSAVE -->|成功| MARK[标记 SUCCESS]
@@ -222,7 +259,8 @@ FlashDeal
 │   ├── seckill_test.sh                          # wrk 秒杀压测主脚本
 │   ├── single_user_test.sh                      # 单用户压测脚本
 │   ├── wrk_seckill_multi_user.lua               # wrk Lua 压测脚本
-│   ├── testData.txt                             # 测试数据
+│   ├── init_users.sh                            # 压测用户数据初始化脚本
+│   ├── test_data.txt                            # 测试数据
 │   └── tokens.txt                               # 用户 Token 文件
 ├── src
 │   ├── main
@@ -233,10 +271,11 @@ FlashDeal
 │   │   │   │   ├── SeckillController.java       # 秒杀下单+状态查询入口
 │   │   │   │   └── TestController.java          # 测试: 添加秒杀券
 │   │   │   ├── service/                         # 服务层
-│   │   │   │   ├── UserService.java
-│   │   │   │   ├── SeckillVoucherService.java
-│   │   │   │   ├── SeckillService.java
-│   │   │   │   └── impl/
+│   │   │   │   ├── api/                         # 接口定义
+│   │   │   │   │   ├── UserService.java
+│   │   │   │   │   ├── SeckillVoucherService.java
+│   │   │   │   │   └── SeckillService.java
+│   │   │   │   └── impl/                        # 接口实现
 │   │   │   │       ├── UserServiceImpl.java
 │   │   │   │       ├── SeckillVoucherServiceImpl.java   # 添加秒杀券+同步库存到Redis
 │   │   │   │       └── SeckillServiceImpl.java          # ⭐ 秒杀核心逻辑
@@ -471,28 +510,28 @@ Content-Type: application/json
 
 ```http
 POST /user/seckill/{id}
-Authorization: Bearer <登录返回的 token>
+authentication: <登录返回的 token>
 ```
 
 **响应示例：**
 
-**成功（异步处理中）：**
+**成功（正在抢购中）：**
 
 ```json
 {
   "code": 1,
   "msg": null,
-  "data": "处理中"
+  "data": "正在抢购中"
 }
 ```
 
-> 秒杀接口返回"处理中"后，前端通过状态查询接口轮询最终结果。
+> 秒杀接口返回“正在抢购中”后，前端通过状态查询接口轮询最终结果。
 
 ### 查询秒杀订单状态
 
 ```http
 GET /user/seckill/status/{voucherId}
-Authorization: Bearer <登录返回的 token>
+authentication: <登录返回的 token>
 ```
 
 **响应示例：**
@@ -534,7 +573,17 @@ Authorization: Bearer <登录返回的 token>
 }
 ```
 
-**限流/系统繁忙：**
+**限流拦截（HTTP 429）：**
+
+```json
+{
+  "code": 0,
+  "msg": "RATE_LIMIT",
+  "data": null
+}
+```
+
+**Redis 异常降级：**
 
 ```json
 {
@@ -550,36 +599,55 @@ Authorization: Bearer <登录返回的 token>
 
 ### 1. Lua 脚本原子操作
 
-秒杀场景下，库存校验、去重、库存扣减如果分开执行，会出现并发竞态。本项目通过两个 Lua 脚本分别覆盖正向预扣与失败回滚，所有操作在
-Redis 单线程内原子完成：
+秒杀场景下，库存校验、去重、库存扣减如果分开执行，会出现并发竞态。本项目通过两个 Lua 脚本分别覆盖正向预扣与失败回滚，所有操作在 Redis 单线程内原子完成：
 
+**seckill.lua — 原子预扣（3 个参数）**
 ```lua
--- lua/seckill.lua — 原子预扣
-if (tonumber(redis.call('get', stockKey) or 0) <= 0) then
-    return 1                    -- 库存不足
+local stockKey = KEYS[1]      -- 库存 key: seckill:{id}:stock
+local orderKey = KEYS[2]      -- 已购用户集合 key: seckill:{id}:order
+local userId   = ARGV[1]      -- 用户 ID
+
+-- 判断库存是否充足
+if(tonumber(redis.call('get', stockKey) or 0) <= 0) then
+    return 1                  -- 库存不足
 end
-if (redis.call('sadd', orderKey, userId) == 0) then
-    return 2                    -- sadd 返回 0，用户已在集合中，重复下单
+
+if(redis.call('sadd', orderKey, userId) == 0) then
+    return 2                  -- sadd 返回0，说明这个用户已经在集合里了，重复下单
 end
-redis.call('decr', stockKey)    -- 扣减库存
-return 0                        -- 成功
+
+redis.call('decr', stockKey)  -- 扣减库存
+return 0                      -- 成功
 ```
 
+**rollback.lua — 原子回滚（5 个参数）**
 ```lua
--- lua/rollback.lua — 原子回滚（mode: DELETE 清除状态 / FAIL 标记失败）
-redis.call('incr', stockKey)              -- 回补库存
-redis.call('srem', orderKey, userId)      -- 移除用户购买记录
+local stockKey       = KEYS[1]      -- 库存 key
+local orderKey       = KEYS[2]      -- 已购用户集合 key
+local idempotencyKey = KEYS[3]      -- 幂等键: seckill:{userId}:{voucherId}:consumed
+local userId         = ARGV[1]      -- 用户 ID
+local mode           = ARGV[2]      -- "DELETE" 清除状态 / "FAIL" 标记失败
+
+-- 回补库存
+redis.call('incr', stockKey)
+-- 移除用户购买记录
+redis.call('srem', orderKey, userId)
+
+-- 处理幂等 key
 if mode == "DELETE" then
     redis.call('del', idempotencyKey)     -- MQ 发送失败：清除幂等键
     return 1
 end
 
--- FAIL 模式：标记失败并设置过期时间
+-- FAIL 模式：标记失败并设置过期时间（86400秒 = 1天）
+local ttlSeconds = ARGV[3]
 redis.call('set', idempotencyKey, "FAILED", "EX", tonumber(ttlSeconds))
 return 1
 ```
 
-> 预扣脚本先 `sadd` 再 `decr`，相比 `sismember` + `sadd` + `decr` 三步，减少一次 Redis 调用，同时利用 `sadd` 的返回值天然完成判重。
+> **关键点**：
+> - 预扣脚本先 `sadd` 再 `decr`，相比 `sismember` + `sadd` + `decr` 三步，减少一次 Redis 调用，同时利用 `sadd` 的返回值天然完成判重
+> - 回滚脚本支持两种模式：MQ 发送失败用 `DELETE` 模式清除幂等键让用户可重试；消费端业务异常用 `FAIL` 模式标记失败并设置 TTL
 
 ### 2. 全局唯一订单 ID
 
@@ -598,33 +666,31 @@ return 1
 
 ### 3. Redis 与 DB 最终一致性
 
-系统采用"**Redis 预扣 + MQ 异步落库**"模式，Redis 是库存的"快"视图，DB 是"真"数据源。一致性保障措施：
+系统采用"**Redis 预扣 + MQ 异步落库**"模式，Redis 是库存的“快”视图，DB 是“真”数据源。一致性保障措施：
 
-- **MQ 同步发送**：发送成功才返回"处理中"，发送失败通过 `rollback.lua` 原子回滚 Redis（库存+资格+幂等键一次完成）
-- **三态幂等**：`PROCESSING/SUCCESS/FAILED` 三态设计，支持 MQ 重试与前端状态轮询
-- **终态判断**：消费端读取幂等键状态，只有终态（SUCCESS/FAILED）才跳过，PROCESSING 继续处理
-- **DB 乐观锁兜底**：`WHERE stock > 0` 防止超卖，DB 层再次校验防重复
-- **业务异常分级**：确定性失败（BusinessException）直接终结并通过 `rollback.lua` 原子回滚；偶发性失败抛出让 MQ 重试
-- **订单落库检查**：`handleFail` 先查 DB 确认订单状态，已落库则不回滚，未落库通过 `rollback.lua` 原子回滚库存
-- **Redis 异常降级**：Redis 连接异常时直接返回"系统繁忙"，避免请求堆积压垮 DB
+- **MQ 异步发送**：`sendOrderAsync()` 内部调用 RocketMQ `asyncSend()`，立即返回“正在抢购中”，失败回调通过 `rollback.lua` 原子回滚 Redis（库存+资格+幂等键一次完成）
+- **三态幂等**：`PROCESSING/SUCCESS/FAILED` 三态设计，消费端读取幂等键状态，只有终态（SUCCESS/FAILED）才跳过，PROCESSING 继续处理
+- **终态判断**：消费端先查 Redis 状态，若为 SUCCESS/FAILED 直接跳过；若状态丢失则进入兜底流程
+- **DB 乐观锁兜底**：`WHERE stock > 0` 防止超卖，DB 层再次校验防重复（唯一索引 `uk_user_voucher`）
+- **业务异常分级**：确定性失败（BusinessException）直接终结并通过 `rollback.lua` 原子回滚；偶发性异常抛出让 MQ 重试（最多 3 次）
+- **订单落库检查**：`handleFail()` 先查 DB 确认订单状态，已落库则标记 SUCCESS 不回滚，未落库通过 `rollback.lua` 原子回滚库存并标记 FAILED
+- **Redis 异常降级**：Redis 连接异常时直接返回“系统繁忙”，避免请求堆积压垮 DB
 
 ### 4. 分层防御体系
 
-- **第一层（入口限流）**：Redisson `RRateLimiter` 全局限流 3000 req/s，超出直接返回"系统繁忙"
+- **第一层（入口限流）**：Redisson `RRateLimiter` 全局限流 3000 req/s，超出直接返回 HTTP 429 + "RATE_LIMIT"
 - **第二层（快速失败）**：Redis Lua 脚本原子预扣，瞬间拒绝无库存/重复请求，不进入后续流程
-- **第三层（数据兜底）**：DB 乐观锁 `WHERE stock > 0` 确保最终数据一致性，防止超卖
+- **第三层（数据兜底）**：DB 乐观锁 `WHERE stock > 0` + 唯一索引 `uk_user_voucher` 确保最终数据一致性
 
----
+### 5. MQ 消费与容错机制
 
-## 📊 性能指标
-
-| 指标     | 数值                                   | 说明                                  |
-|:-------|:-------------------------------------|:------------------------------------|
-| 系统吞吐   | ~23000 req/s                         | 200 连接压测实测，限流拦截 87% 后放行约 3000 req/s |
-| 平均响应时间 | ~10ms                                | Redis 预扣 + MQ 同步发送                  |
-| wrk 压测 | 200 连接 / 8 线程，696K+ 请求，P99 = 35.59ms | 本地 30s benchmark 实测数据               |
-| 超卖防护   | 理论可完全避免                              | Lua 原子操作 + DB 乐观锁双重保障               |
-| 重复下单防护 | 理论可完全避免                              | Redis Set + DB 乐观锁 + DB 唯一索引        |
+- **异步发送**：`sendOrderAsync()` 使用 RocketMQ `asyncSend()`，成功回调记录日志，失败回调触发回滚
+- **失败回滚**：MQ 发送失败时调用 `rollback.lua` 原子回滚（库存+1、移除用户购买记录、删除幂等键）
+- **补偿队列**：发送失败的订单写入 Redis List `seckill:order:fail`，支持定时任务重试或人工介入
+- **消费端幂等**：读取 Redis 幂等键状态，SUCCESS/FAILED 终态跳过，PROCESSING 继续处理
+- **异常分级处理**：
+  - 业务异常（BusinessException）：确定性失败，调用 `handleFail()` 检查 DB 是否已落库，未落库则回滚并标记 FAILED
+  - 系统异常：抛出异常触发 MQ 重试，最多重试 3 次后进入死信队列
 
 ---
 
@@ -645,9 +711,31 @@ chmod +x seckill_test.sh single_user_test.sh
 
 压测脚本会自动：
 
-1. 从 `tokens.txt` 读取用户 Token
-2. 使用 `wrk` 多线程并发请求秒杀接口
-3. 输出压测统计结果（QPS、延迟分布等）
+1. 从 `tokens.txt` 读取 N 个用户 Token（格式：`userId|phone|token`）
+2. 使用 `wrk` 多线程并发请求秒杀接口（8 线程 / 200 连接）
+3. 自动分类统计：限流拦截、库存不足、重复下单、成功/处理中
+4. 输出压测报告（QPS、延迟分布、业务分类占比）
+
+**参数说明：**
+- `$1` 用户数（默认 5000）
+- `$2` 并发连接数（默认 200）
+- `$3` 持续时间秒（默认 30）
+- `$4` 券ID（默认 1）
+
+**示例输出：**
+```
+========================================
+总请求: 1209772 | QPS: 40200
+--- 业务分类 ---
+限流拦截: 1108670 (92.43%)
+库存不足: 90300 (7.53%)
+重复下单: 453 (0.04%)
+成功/处理中: 100 (0.01%)
+延迟: avg=6.99ms p50=2.51ms p99=27.08ms
+========================================
+```
+
+> **注意**：首次压测前需通过 `seckill_test.sh` 或手动调用 `/user/login` 获取 Token 并写入 `tokens.txt`。Token 有效期 2 小时，过期需重新生成。
 
 ---
 

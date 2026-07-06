@@ -85,13 +85,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
                     String.valueOf(userId)
             );
 
-            // 2. 结果判空与判断
-            if (result == null) {
-                // Lua 脚本或 Redis 调用异常，退化处理
-                log.error("Lua脚本返回 null，voucherId={}, userId={}", voucherId, userId);
-                return Result.error("当前系统繁忙，请稍后重试");
-            }
-
+            // 2. 结果判断
             if (result != 0) {
                 return Result.error(result == 1
                         ? MessageConstant.VOUCHER_INSUFFICIENT
