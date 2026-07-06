@@ -47,13 +47,13 @@
 
 ### 关键验证结论
 
-| 验证项     | 预期      | 实际      | 状态 |
-|:---------|:--------|:--------|:---|
-| **超卖防护** | 0 超卖    | ✅ 0 超卖 | 通过 |
-| **重复下单** | 0 重复    | ✅ 453次被拦截 | 通过 |
-| **库存精准** | 100库存→100订单 | ✅ 100 订单成功 | 通过 |
+| 验证项      | 预期            | 实际                | 状态 |
+|:---------|:--------------|:------------------|:---|
+| **超卖防护** | 0 超卖          | ✅ 0 超卖            | 通过 |
+| **重复下单** | 0 重复          | ✅ 453次被拦截         | 通过 |
+| **库存精准** | 100库存→100订单   | ✅ 100 订单成功        | 通过 |
 | **限流效果** | 3000 req/s 放行 | ✅ 约 3000 req/s 放行 | 通过 |
-| **响应时间** | p99 < 50ms | ✅ p99 = 27.08ms | 优秀 |
+| **响应时间** | p99 < 50ms    | ✅ p99 = 27.08ms   | 优秀 |
 
 ### 性能分析
 
@@ -67,18 +67,18 @@
 
 ## ✨ 核心特性
 
-| 特性             | 实现方式                              | 说明                                                                     |
-|:---------------|:----------------------------------|:-----------------------------------------------------------------------|
-| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，压测中拦截 92.43% 请求，超出直接返回 HTTP 429                                    |
-| 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时，从 `authentication` header 提取                                                   |
-| ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态                                                |
-| 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式                               |
-| ️ **库存预热**   | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （仅 dev 环境）                                 |
-| 📨 **异步落库**    | RocketMQ 异步发送                     | Redis 预扣成功后异步发送 MQ；SeckillProducer 捕获 asyncSend 异常并回滚               |
-|  **DB 乐观锁**  | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                                       |
-| ️ **三态幂等**   | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                                               |
-| 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0`                     |
-| 🔄 **失败补偿**    | Redis Lua 原子回滚 + 结构化留痕            | MQ 发送失败 / 消费业务异常时原子回滚库存，失败记录便于人工核查                                     |
+| 特性             | 实现方式                              | 说明                                                    |
+|:---------------|:----------------------------------|:------------------------------------------------------|
+| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，压测中拦截 92.43% 请求，超出直接返回 HTTP 429       |
+| 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时，从 `authentication` header 提取     |
+| ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态                        |
+| 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式              |
+| ️ **库存预热**     | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （仅 dev 环境）                  |
+| 📨 **异步落库**    | RocketMQ 异步发送                     | Redis 预扣成功后异步发送 MQ；SeckillProducer 捕获 asyncSend 异常并回滚 |
+| **DB 乐观锁**     | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                      |
+| ️ **三态幂等**     | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                              |
+| 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0`    |
+| 🔄 **失败补偿**    | Redis Lua 原子回滚 + 结构化留痕            | MQ 发送失败 / 消费业务异常时原子回滚库存，失败记录便于人工核查                    |
 
 ---
 
@@ -136,7 +136,7 @@ flowchart TB
     end
 
     subgraph DB["持久层"]
-        MYSQL[("MySQL<br/>tb_voucher<br/>tb_seckill_voucher<br/>tb_voucher_order<br/>user")]
+        MYSQL[("MySQL<br/>tb_seckill_voucher<br/>tb_voucher_order<br/>user")]
     end
 
     U -->|HTTP 请求| RL
@@ -359,33 +359,17 @@ CREATE TABLE `user`
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
 
--- 优惠券表
-CREATE TABLE `tb_voucher`
-(
-    `id`           BIGINT NOT NULL AUTO_INCREMENT,
-    `title`        VARCHAR(128)  DEFAULT NULL,
-    `sub_title`    VARCHAR(128)  DEFAULT NULL,
-    `rules`        VARCHAR(1024) DEFAULT NULL,
-    `pay_value`    BIGINT        DEFAULT NULL,
-    `actual_value` BIGINT        DEFAULT NULL,
-    `type`         INT           DEFAULT NULL,
-    `status`       INT           DEFAULT NULL,
-    `create_time`  DATETIME      DEFAULT NULL,
-    `update_time`  DATETIME      DEFAULT NULL,
-    PRIMARY KEY (`id`)
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4;
 
 -- 秒杀优惠券表
 CREATE TABLE `tb_seckill_voucher`
 (
-    `voucher_id`  BIGINT NOT NULL,
+    `id`          BIGINT NOT NULL,
     `stock`       INT    NOT NULL,
     `create_time` DATETIME DEFAULT NULL,
     `begin_time`  DATETIME DEFAULT NULL,
     `end_time`    DATETIME DEFAULT NULL,
     `update_time` DATETIME DEFAULT NULL,
-    PRIMARY KEY (`voucher_id`)
+    PRIMARY KEY (`id`)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
 
@@ -546,10 +530,10 @@ authentication: <登录返回的 token>
 
 **状态说明：**
 
-| 状态           | 含义            |
-|:-------------|:--------------|
-| `PROCESSING` | 订单正在处理中       |
-| `SUCCESS`    | 订单创建成功        |
+| 状态           | 含义                                |
+|:-------------|:----------------------------------|
+| `PROCESSING` | 订单正在处理中                           |
+| `SUCCESS`    | 订单创建成功                            |
 | `FAILED`     | 订单创建失败（已回滚库存）或 DB 无订单且 Redis 状态丢失 |
 
 **库存不足：**
@@ -598,20 +582,22 @@ authentication: <登录返回的 token>
 
 ### 1. Lua 脚本原子操作
 
-秒杀场景下，库存校验、去重、库存扣减如果分开执行，会出现并发竞态。本项目通过两个 Lua 脚本分别覆盖正向预扣与失败回滚，所有操作在 Redis 单线程内原子完成：
+秒杀场景下，库存校验、去重、库存扣减如果分开执行，会出现并发竞态。本项目通过两个 Lua 脚本分别覆盖正向预扣与失败回滚，所有操作在
+Redis 单线程内原子完成：
 
 **seckill.lua — 原子预扣（3 个参数）**
+
 ```lua
 local stockKey = KEYS[1]      -- 库存 key: seckill:{id}:stock
 local orderKey = KEYS[2]      -- 已购用户集合 key: seckill:{id}:order
-local userId   = ARGV[1]      -- 用户 ID
+local userId = ARGV[1]      -- 用户 ID
 
 -- 判断库存是否充足
-if(tonumber(redis.call('get', stockKey) or 0) <= 0) then
+if (tonumber(redis.call('get', stockKey) or 0) <= 0) then
     return 1                  -- 库存不足
 end
 
-if(redis.call('sadd', orderKey, userId) == 0) then
+if (redis.call('sadd', orderKey, userId) == 0) then
     return 2                  -- sadd 返回0，说明这个用户已经在集合里了，重复下单
 end
 
@@ -620,12 +606,13 @@ return 0                      -- 成功
 ```
 
 **rollback.lua — 原子回滚（5 个参数）**
+
 ```lua
-local stockKey       = KEYS[1]      -- 库存 key
-local orderKey       = KEYS[2]      -- 已购用户集合 key
+local stockKey = KEYS[1]      -- 库存 key
+local orderKey = KEYS[2]      -- 已购用户集合 key
 local idempotencyKey = KEYS[3]      -- 幂等键: seckill:{userId}:{voucherId}:consumed
-local userId         = ARGV[1]      -- 用户 ID
-local mode           = ARGV[2]      -- "DELETE" 清除状态 / "FAIL" 标记失败
+local userId = ARGV[1]      -- 用户 ID
+local mode = ARGV[2]      -- "DELETE" 清除状态 / "FAIL" 标记失败
 
 -- 回补库存
 redis.call('incr', stockKey)
@@ -646,7 +633,8 @@ return 1
 
 > **关键点**：
 > - 预扣脚本先 `sadd` 再 `decr`，相比 `sismember` + `sadd` + `decr` 三步，减少一次 Redis 调用，同时利用 `sadd` 的返回值天然完成判重
-> - 回滚脚本支持两种模式：MQ 发送失败用 `DELETE` 模式清除幂等键让用户可重试；消费端业务异常用 `FAIL` 模式标记失败并设置 TTL
+> - 回滚脚本支持两种模式：MQ 发送失败用 `DELETE` 模式清除幂等键让用户可重试；消费端业务异常用 `FAIL` 模式标记失败并设置
+    TTL
 
 ### 2. 全局唯一订单 ID
 
@@ -667,12 +655,15 @@ return 1
 
 系统采用"**Redis 预扣 + MQ 异步落库**"模式，Redis 是库存的“快”视图，DB 是“真”数据源。一致性保障措施：
 
-- **MQ 异步发送**：`sendOrderAsync()` 内部调用 RocketMQ `asyncSend()`，立即返回“正在抢购中”，失败回调通过 `rollback.lua` 原子回滚 Redis（库存+资格+幂等键一次完成）
+- **MQ 异步发送**：`sendOrderAsync()` 内部调用 RocketMQ `asyncSend()`，立即返回“正在抢购中”，失败回调通过 `rollback.lua`
+  原子回滚 Redis（库存+资格+幂等键一次完成）
 - **三态幂等**：`PROCESSING/SUCCESS/FAILED` 三态设计，消费端读取幂等键状态，只有终态（SUCCESS/FAILED）才跳过，PROCESSING 继续处理
 - **终态判断**：消费端先查 Redis 状态，若为 SUCCESS/FAILED 直接跳过；若状态丢失则进入兜底流程
 - **DB 乐观锁兜底**：`WHERE stock > 0` 防止超卖，DB 层再次校验防重复（唯一索引 `uk_user_voucher`）
-- **业务异常分级**：确定性失败（BusinessException）直接终结并通过 `rollback.lua` 原子回滚；偶发性异常抛出让 MQ 重试（最多 3 次）
-- **订单落库检查**：`handleFail()` 先查 DB 确认订单状态，已落库则标记 SUCCESS 不回滚，未落库通过 `rollback.lua` 原子回滚库存并标记 FAILED
+- **业务异常分级**：确定性失败（BusinessException）直接终结并通过 `rollback.lua` 原子回滚；偶发性异常抛出让 MQ 重试（最多 3
+  次）
+- **订单落库检查**：`handleFail()` 先查 DB 确认订单状态，已落库则标记 SUCCESS 不回滚，未落库通过 `rollback.lua` 原子回滚库存并标记
+  FAILED
 - **Redis 异常降级**：Redis 连接异常时直接返回“系统繁忙”，避免请求堆积压垮 DB
 
 ### 4. 分层防御体系
@@ -688,8 +679,8 @@ return 1
 - **补偿队列**：发送失败的订单写入 Redis List `seckill:order:fail`，支持定时任务重试或人工介入
 - **消费端幂等**：读取 Redis 幂等键状态，SUCCESS/FAILED 终态跳过，PROCESSING 继续处理
 - **异常分级处理**：
-  - 业务异常（BusinessException）：确定性失败，调用 `handleFail()` 检查 DB 是否已落库，未落库则回滚并标记 FAILED
-  - 系统异常：抛出异常触发 MQ 重试，最多重试 3 次后进入死信队列
+    - 业务异常（BusinessException）：确定性失败，调用 `handleFail()` 检查 DB 是否已落库，未落库则回滚并标记 FAILED
+    - 系统异常：抛出异常触发 MQ 重试，最多重试 3 次后进入死信队列
 
 ---
 
@@ -716,12 +707,14 @@ chmod +x seckill_test.sh single_user_test.sh
 4. 输出压测报告（QPS、延迟分布、业务分类占比）
 
 **参数说明：**
+
 - `$1` 用户数（默认 5000）
 - `$2` 并发连接数（默认 200）
 - `$3` 持续时间秒（默认 30）
 - `$4` 券ID（默认 1）
 
 **示例输出：**
+
 ```
 ========================================
 总请求: 1209772 | QPS: 40200
@@ -734,7 +727,8 @@ chmod +x seckill_test.sh single_user_test.sh
 ========================================
 ```
 
-> **注意**：首次压测前需通过 `seckill_test.sh` 或手动调用 `/user/login` 获取 Token 并写入 `tokens.txt`。Token 有效期 2 小时，过期需重新生成。
+> **注意**：首次压测前需通过 `seckill_test.sh` 或手动调用 `/user/login` 获取 Token 并写入 `tokens.txt`。Token 有效期 2
+> 小时，过期需重新生成。
 
 ---
 

@@ -30,5 +30,5 @@ public interface SeckillService extends IService<SeckillOrder> {
      * @param voucherId 优惠券id
      * @return 状态
      */
-    String querySeckillStatus(Long voucherId);
+    String  querySeckillStatus(Long voucherId);
 }
