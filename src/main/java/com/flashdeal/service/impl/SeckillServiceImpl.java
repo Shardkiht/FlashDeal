@@ -8,11 +8,11 @@ import com.flashdeal.domain.Result;
 import com.flashdeal.domain.SeckillOrder;
 import com.flashdeal.common.exception.BusinessException;
 import com.flashdeal.mapper.SeckillOrderMapper;
-import com.flashdeal.rocketmq.SeckillProducer;
 import com.flashdeal.service.api.SeckillService;
 import com.flashdeal.service.api.SeckillVoucherService;
 import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.common.utils.UserHolder;
+import com.flashdeal.rocketmq.SeckillProducer;
 import io.lettuce.core.RedisCommandTimeoutException;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +20,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.env.Environment;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -69,6 +68,9 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT =
             LuaScriptUtil.load("lua/seckill.lua", Long.class);
 
+    private static final DefaultRedisScript<Long> ROLLBACK_SCRIPT =
+            LuaScriptUtil.load("lua/rollback.lua", Long.class);
+
     @Override
     public Result<String> seckillVoucher(Long voucherId) {
         Long userId = UserHolder.getCurrentId();
@@ -114,9 +116,15 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
             // 返回"处理中"，前端轮询用户最近的秒杀订单状态
             return Result.success("正在抢购中");
 
-        } catch (RedisCommandTimeoutException | DataAccessException e) {
-            log.error("Redis 异常降级，voucherId={}, userId={}", voucherId, userId, e);
-            return Result.error("当前系统繁忙，请稍后重试");
+            // 异常处理，回滚 Redis 库存
+        } catch (Exception e) {
+            log.error("秒杀失败, 回滚Redis, voucherId={}, userId={}", voucherId, userId, e);
+            stringRedisTemplate.execute(
+                    ROLLBACK_SCRIPT,
+                    Arrays.asList(stockKey, orderKey, idempotencyKey),
+                    String.valueOf(userId), "FAIL", "3600"
+            );
+            return Result.error("抢购失败，请稍后重试");
         }
     }
 

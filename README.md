@@ -23,7 +23,7 @@
 
 **FlashDeal** 是一个面向高并发场景的秒杀系统，核心解决电商促销、限量抢购等业务中常见的三大难题：**超卖**、**重复下单**、**流量洪峰**。系统通过 Redis Lua 脚本实现原子性库存预扣减，借助 RocketMQ 完成订单异步落库，并使用 Redisson 限流器保障系统稳定性。
 
-整体设计遵循"**前置拦截 → 原子预扣 → 异步落库 → 失败补偿**"
+整体设计遵循"**前置拦截 → 原子预扣 → 异步落库 → 失败回滚**"
 的分层防御理念，单机可支撑每秒数千次秒杀请求，在保证业务正确性的同时最大化吞吐能力。项目代码结构清晰、注释完善，既可作为生产级秒杀方案的参考实现，也适合作为学习高并发架构设计的实战案例。
 
 ---
@@ -73,11 +73,11 @@
 | ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态                        |
 | 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式              |
 | ️ **库存预热**     | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （仅 dev 环境）                  |
-| 📨 **异步落库**    | RocketMQ 异步发送                     | Redis 预扣成功后异步发送 MQ；SeckillProducer 捕获 asyncSend 异常并回滚 |
+| 📨 **异步落库**    | RocketMQ 异步发送                     | Redis 预扣成功后异步发送 MQ；ServiceImpl 统一捕获异常并回滚      |
 | **DB 乐观锁**     | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                      |
 | ️ **三态幂等**     | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                              |
 | 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0`    |
-| 🔄 **失败补偿**    | Redis Lua 原子回滚 + 结构化留痕            | MQ 发送失败 / 消费业务异常时原子回滚库存，失败记录便于人工核查                    |
+| 🔄 **失败回滚**    | Redis Lua 原子回滚 + FAIL 标记            | MQ 发送失败 / 消费业务异常时原子回滚库存并标记 FAILED，用户可立即重试                    |
 
 ---
 
@@ -193,8 +193,8 @@ flowchart TD
     BUILD --> MARK[标记 PROCESSING<br/>写入三态幂等键]
     MARK --> MQ{异步发送 RocketMQ}
     MQ -->|发送成功| OK[返回: 正在抢购中<br/>前端轮询状态]
-    MQ -->|发送失败| ROLLBACK[执行 rollback.lua<br/>原子回滚库存+资格+状态]
-    ROLLBACK --> R5[返回: 系统繁忙<br/>请稍后重试]
+    MQ -->|发送失败| ROLLBACK[执行 rollback.lua<br/>回滚库存+资格, 标记 FAILED]
+    ROLLBACK --> R5[返回: 抢购失败<br/>用户可立即重试]
 
     style START fill:#6a1b9a,color:#fff
     style OK fill:#2e7d32,color:#fff
@@ -210,7 +210,7 @@ flowchart TD
 
 ---
 
-## 📨 MQ 消费与补偿流程
+## 📨 MQ 消费与容错流程
 
 下图展示了 RocketMQ 消费者侧的处理逻辑。消费者收到订单消息后，先做幂等校验，再在 DB 乐观锁保护下完成 DB
 落库。若发生业务异常（如库存不足、重复下单），会自动回滚 Redis 预扣的库存，保证 Redis 与 DB 数据最终一致。
@@ -230,8 +230,7 @@ flowchart TD
     CHECK -->|已落库| MARK2[标记 SUCCESS<br/>不回滚]
     MARK2 --> DONE
     CHECK -->|未落库| RBLUA2[执行 rollback.lua<br/>原子回滚库存+资格+标记FAILED]
-    RBLUA2 --> RECORD[SeckillFailLog<br/>结构化留痕]
-    RECORD --> DONE
+    RBLUA2 --> DONE
 
     DBSAVE -->|系统异常| THROW1[抛出异常<br/>触发 MQ 重试]
     THROW1 --> RETRY{{MQ 自动重试<br/>最多 3 次}}
@@ -565,12 +564,12 @@ authentication: <登录返回的 token>
 }
 ```
 
-**Redis 异常降级：**
+**异常降级：**
 
 ```json
 {
   "code": 0,
-  "msg": "当前系统繁忙，请稍后重试",
+  "msg": "抢购失败，请稍后重试",
   "data": null
 }
 ```
@@ -632,8 +631,7 @@ return 1
 
 > **关键点**：
 > - 预扣脚本先 `sadd` 再 `decr`，相比 `sismember` + `sadd` + `decr` 三步，减少一次 Redis 调用，同时利用 `sadd` 的返回值天然完成判重
-> - 回滚脚本支持两种模式：MQ 发送失败用 `DELETE` 模式清除幂等键让用户可重试；消费端业务异常用 `FAIL` 模式标记失败并设置
-    TTL
+> - 回滚脚本支持两种模式：`FAIL` 模式标记失败并设置 TTL（1 小时），回滚库存+移除购买记录，用户可立即重试；`DELETE` 模式直接清除幂等键，用于彻底清理状态
 
 ### 2. 全局唯一订单 ID
 
@@ -654,16 +652,12 @@ return 1
 
 系统采用"**Redis 预扣 + MQ 异步落库**"模式，Redis 是库存的“快”视图，DB 是“真”数据源。一致性保障措施：
 
-- **MQ 异步发送**：`sendOrderAsync()` 内部调用 RocketMQ `asyncSend()`，立即返回“正在抢购中”，失败回调通过 `rollback.lua`
-  原子回滚 Redis（库存+资格+幂等键一次完成）
+- **MQ 异步发送**：`sendOrderAsync()` 内部调用 RocketMQ `asyncSend()`，立即返回"正在抢购中"。发送失败时（同步异常或异步回调失败）均通过 `rollback.lua` 原子回滚 Redis（库存+资格一次完成）并标记幂等键为 FAILED，用户可立即重试
 - **三态幂等**：`PROCESSING/SUCCESS/FAILED` 三态设计，消费端读取幂等键状态，只有终态（SUCCESS/FAILED）才跳过，PROCESSING 继续处理
 - **终态判断**：消费端先查 Redis 状态，若为 SUCCESS/FAILED 直接跳过；若状态丢失则进入兜底流程
 - **DB 乐观锁兜底**：`WHERE stock > 0` 防止超卖，DB 层再次校验防重复（唯一索引 `uk_user_voucher`）
-- **业务异常分级**：确定性失败（BusinessException）直接终结并通过 `rollback.lua` 原子回滚；偶发性异常抛出让 MQ 重试（最多 3
-  次）
-- **订单落库检查**：`handleFail()` 先查 DB 确认订单状态，已落库则标记 SUCCESS 不回滚，未落库通过 `rollback.lua` 原子回滚库存并标记
-  FAILED
-- **Redis 异常降级**：Redis 连接异常时直接返回“系统繁忙”，避免请求堆积压垮 DB
+- **消费端异常分级**：确定性失败（BusinessException）直接终结并回滚；偶发性异常抛出让 MQ 重试（最多 3 次）
+- **订单落库检查**：`handleFail()` 先查 DB 确认订单状态，已落库则标记 SUCCESS 不回滚，未落库通过 `rollback.lua` 原子回滚库存并标记 FAILED
 
 ### 4. 分层防御体系
 
@@ -674,8 +668,7 @@ return 1
 ### 5. MQ 消费与容错机制
 
 - **异步发送**：`sendOrderAsync()` 使用 RocketMQ `asyncSend()`，成功回调记录日志，失败回调触发回滚
-- **失败回滚**：MQ 发送失败时调用 `rollback.lua` 原子回滚（库存+1、移除用户购买记录、删除幂等键）
-- **补偿队列**：发送失败的订单写入 Redis List `seckill:order:fail`，支持定时任务重试或人工介入
+- **失败回滚**：MQ 发送失败时（同步异常由 ServiceImpl 捕获、异步回调失败由 `onException` 处理）均调用 `rollback.lua` 原子回滚（库存+1、移除用户购买记录）并标记幂等键为 FAILED（TTL 1 小时），用户可立即重试
 - **消费端幂等**：读取 Redis 幂等键状态，SUCCESS/FAILED 终态跳过，PROCESSING 继续处理
 - **异常分级处理**：
     - 业务异常（BusinessException）：确定性失败，调用 `handleFail()` 检查 DB 是否已落库，未落库则回滚并标记 FAILED
@@ -739,8 +732,7 @@ chmod +x seckill_test.sh single_user_test.sh
 - [x] RocketMQ 异步落库
 - [x] DB 乐观锁防重复
 - [x] 三态幂等与状态查询接口
-- [x] 失败补偿与 Lua 原子回滚
-- [x] 结构化失败留痕（SeckillFailLog）
+- [x] 失败回滚与 Lua 原子恢复
 - [x] 接口压测脚本（wrk）
 - [ ] Docker Compose 一键部署
 - [ ] Prometheus + Grafana 监控

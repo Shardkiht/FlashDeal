@@ -1,6 +1,5 @@
 package com.flashdeal.rocketmq;
 
-import com.alibaba.fastjson.JSON;
 import com.flashdeal.common.constant.MessageConstant;
 import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.domain.SeckillOrder;
@@ -60,70 +59,31 @@ public class SeckillProducer {
     /**
      * 异步发送订单消息，失败回调回滚 Redis
      *
-     * @param order           订单
-     * @param stockKey        库存 key
-     * @param orderKey        订单 key
-     * @param idempotencyKey  幂等 key
+     * @param order          订单
+     * @param stockKey       库存 key
+     * @param orderKey       订单 key
+     * @param idempotencyKey 幂等 key
      */
     public void sendOrderAsync(SeckillOrder order, String stockKey, String orderKey, String idempotencyKey) {
-        try {
-            rocketMQTemplate.asyncSend(
-                    MessageConstant.VOUCHER_ORDER_TOPIC,
-                    MessageBuilder.withPayload(order).build(),
-                    new SendCallback() {
-                        @Override
-                        public void onSuccess(SendResult sendResult) {
-                            log.info("异步发送成功, orderId={}", order.getId());
-                        }
-
-                        @Override
-                        public void onException(Throwable e) {
-                            log.error("异步发送失败, 回滚Redis库存, orderId={}", order.getId(), e);
-                            try {
-                                stringRedisTemplate.execute(
-                                        ROLLBACK_SCRIPT,
-                                        Arrays.asList(stockKey, orderKey, idempotencyKey),
-                                        String.valueOf(order.getUserId()), "DELETE"
-                                );
-                            } catch (Exception ex) {
-                                log.error("回滚Redis失败, orderId={}, 定时任务兜底", order.getId(), ex);
-                            }
-
-                            // 发送失败，落盘到补偿队列以便人工/定时重试
-                            try {
-                                saveToCompensateQueue(order);
-                            } catch (Exception qex) {
-                                log.error("加入补偿队列失败, orderId={}", order.getId(), qex);
-                            }
-                        }
+        rocketMQTemplate.asyncSend(
+                MessageConstant.VOUCHER_ORDER_TOPIC,
+                MessageBuilder.withPayload(order).build(),
+                new SendCallback() {
+                    @Override
+                    public void onSuccess(SendResult sendResult) {
+                        log.info("异步发送成功, orderId={}", order.getId());
                     }
-            );
-        } catch (Exception e) {
-            // asyncSend 本身可能在注册回调前抛出（序列化、客户端未就绪等），需要同步处理
-            log.error("异步发送抛出同步异常，回滚 Redis 并加入补偿队列, orderId={}", order.getId(), e);
-            try {
-                stringRedisTemplate.execute(
-                        ROLLBACK_SCRIPT,
-                        Arrays.asList(stockKey, orderKey, idempotencyKey),
-                        String.valueOf(order.getUserId()), "DELETE"
-                );
-            } catch (Exception rex) {
-                log.error("回滚Redis失败, orderId={}", order.getId(), rex);
-            }
-            try {
-                saveToCompensateQueue(order);
-            } catch (Exception qex) {
-                log.error("加入补偿队列失败, orderId={}", order.getId(), qex);
-            }
-        }
-    }
 
-    /**
-     * 发送失败兜底：写入 Redis 补偿队列
-     */
-    public void saveToCompensateQueue(SeckillOrder order) {
-        String failKey = "seckill:order:fail";
-        stringRedisTemplate.opsForList().rightPush(failKey, JSON.toJSONString(order));
-        log.warn("订单已加入补偿队列, orderId={}", order.getId());
+                    @Override
+                    public void onException(Throwable e) {
+                        log.error("异步发送失败, 回滚Redis, orderId={}", order.getId(), e);
+                        stringRedisTemplate.execute(
+                                ROLLBACK_SCRIPT,
+                                Arrays.asList(stockKey, orderKey, idempotencyKey),
+                                String.valueOf(order.getUserId()), "FAIL", "3600"
+                        );
+                    }
+                }
+        );
     }
 }

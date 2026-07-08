@@ -2,9 +2,9 @@ package com.flashdeal.rocketmq;
 
 import com.flashdeal.common.constant.MessageConstant;
 import com.flashdeal.common.constant.RedisKeyConstant;
+import com.flashdeal.common.exception.BusinessException;
 import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.domain.SeckillOrder;
-import com.flashdeal.common.exception.BusinessException;
 import com.flashdeal.service.api.SeckillService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +15,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
 import java.util.Arrays;
 
 /**
@@ -72,35 +71,23 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrder> {
     }
 
     private void handleFail(SeckillOrder order, String idempotencyKey, String reason) {
-        // 1. 查库
+        // 1. 查库确认订单是否已落库
         long count = seckillService.query().eq("id", order.getId()).count();
 
         if (count > 0) {
-            // 2. 订单已存在，标记 SUCCESS
-            try {
-                stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS");
-            } catch (Exception e) {
-                log.error("标记SUCCESS失败, orderId={}, 前端查询请求任务兜底", order.getId(), e);
-            }
+            // 订单已存在，标记 SUCCESS
+            stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS");
             return;
         }
 
-        // 3. 订单未写入，回滚 Redis
+        // 2. 订单未写入，回滚 Redis
         String stockKey = RedisKeyConstant.getSeckillStockKey(order.getVoucherId());
         String orderKey = RedisKeyConstant.getSeckillOrderKey(order.getVoucherId());
-        try {
-            stringRedisTemplate.execute(
-                    ROLLBACK_SCRIPT,
-                    Arrays.asList(stockKey, orderKey, idempotencyKey),
-                    String.valueOf(order.getUserId()), "FAIL", "86400"
-            );
-        } catch (Exception e) {
-            log.error("回滚Redis失败, orderId={}, 前端查询请求任务兜底", order.getId(), e);
-        }
-
-        // 4. 记日志
-        SeckillFailLog record = new SeckillFailLog(
-                order.getId(), order.getUserId(), order.getVoucherId(), reason, LocalDateTime.now());
-        log.error("订单未写入，已回滚，进入核查: {}", record);
+        stringRedisTemplate.execute(
+                ROLLBACK_SCRIPT,
+                Arrays.asList(stockKey, orderKey, idempotencyKey),
+                String.valueOf(order.getUserId()), "FAIL", "86400"
+        );
+        log.error("订单未写入，已回滚, orderId={}, reason={}", order.getId(), reason);
     }
 }
