@@ -17,8 +17,9 @@ public class RedisKeyConstant {
     }
 
     // 幂等/状态 key，PROCESSING/SUCCESS/FAILED 三态复用
+    // hash tag 使用 voucherId，确保与 stockKey/orderKey 同槽，避免 Lua 脚本 CROSSSLOT
     public static String getConsumedKey(Long userId, Long voucherId) {
-        return "seckill:{" + userId + "}:{" + voucherId + "}:consumed";
+        return "seckill:{" + voucherId + "}:" + userId + ":consumed";
     }
 
     // 限流器 key
