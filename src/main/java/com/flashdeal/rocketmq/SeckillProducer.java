@@ -1,6 +1,7 @@
 package com.flashdeal.rocketmq;
 
 import com.flashdeal.common.constant.MessageConstant;
+import com.flashdeal.common.constant.SeckillConstant;
 import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.domain.SeckillOrder;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +26,7 @@ import java.util.Arrays;
 public class SeckillProducer {
 
     private static final DefaultRedisScript<Long> ROLLBACK_SCRIPT =
-            LuaScriptUtil.load("lua/rollback.lua", Long.class);
+            LuaScriptUtil.load(SeckillConstant.LUA_ROLLBACK_SCRIPT, Long.class);
 
     private final RocketMQTemplate rocketMQTemplate;
     private final StringRedisTemplate stringRedisTemplate;
@@ -80,7 +81,7 @@ public class SeckillProducer {
                         stringRedisTemplate.execute(
                                 ROLLBACK_SCRIPT,
                                 Arrays.asList(stockKey, orderKey, idempotencyKey),
-                                String.valueOf(order.getUserId()), "FAIL", "3600"
+                                String.valueOf(order.getUserId()), SeckillConstant.ROLLBACK_RESULT_FAIL, SeckillConstant.ROLLBACK_EXPIRE_SECONDS
                         );
                     }
                 }

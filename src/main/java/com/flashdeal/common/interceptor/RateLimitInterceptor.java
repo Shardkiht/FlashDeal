@@ -1,5 +1,7 @@
 package com.flashdeal.common.interceptor;
 
+import com.flashdeal.common.constant.MessageConstant;
+import com.flashdeal.common.constant.RedisKeyConstant;
 import com.flashdeal.domain.Result;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -31,13 +33,11 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     @Value("${seckill.rate-limit.rate:3000}")
     private long rate;
 
-    private static final String LIMITER_KEY = "seckill:limiter";
-
     private RRateLimiter rateLimiter;
 
     @PostConstruct
     public void initRateLimiter() {
-        rateLimiter = redissonClient.getRateLimiter(LIMITER_KEY);
+        rateLimiter = redissonClient.getRateLimiter(RedisKeyConstant.LIMITER_KEY);
         rateLimiter.trySetRate(RateType.OVERALL, rate, 1, RateIntervalUnit.SECONDS);
         log.info("限流器初始化完成, rate={}/s", rate);
     }
@@ -47,8 +47,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         if (rateLimiter != null && !rateLimiter.tryAcquire(1)) {
             log.warn("请求被限流, uri={}", request.getRequestURI());
             response.setStatus(429);
-            response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write(objectMapper.writeValueAsString(Result.error("RATE_LIMIT")));
+            response.setContentType(MessageConstant.CONTENT_TYPE_JSON);
+            response.getWriter().write(objectMapper.writeValueAsString(Result.error(MessageConstant.RATE_LIMIT)));
             return false;
         }
         return true;

@@ -1,5 +1,6 @@
 package com.flashdeal.common.config;
 
+import com.flashdeal.common.constant.PathConstant;
 import com.flashdeal.common.interceptor.LoginInterceptor;
 import com.flashdeal.common.interceptor.RateLimitInterceptor;
 import com.flashdeal.common.json.JacksonObjectMapper;
@@ -31,12 +32,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
         log.info("开始注册拦截器...");
         // 1. 限流拦截器（最先执行，保护后端）
         registry.addInterceptor(rateLimitInterceptor)
-                .addPathPatterns("/user/**")
+                .addPathPatterns(PathConstant.USER_API)
                 .order(0);
         // 2. JWT 登录拦截器（限流之后执行）
         registry.addInterceptor(loginInterceptor)
-                .addPathPatterns("/user/**")
-                .excludePathPatterns("/user/login")
+                .addPathPatterns(PathConstant.USER_API)
+                .excludePathPatterns(PathConstant.USER_LOGIN)
                 .order(1);
     }
 

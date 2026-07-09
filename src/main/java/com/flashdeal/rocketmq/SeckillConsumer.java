@@ -2,6 +2,7 @@ package com.flashdeal.rocketmq;
 
 import com.flashdeal.common.constant.MessageConstant;
 import com.flashdeal.common.constant.RedisKeyConstant;
+import com.flashdeal.common.constant.SeckillConstant;
 import com.flashdeal.common.exception.BusinessException;
 import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.domain.SeckillOrder;
@@ -26,14 +27,14 @@ import java.util.Arrays;
         topic = MessageConstant.VOUCHER_ORDER_TOPIC,
         consumerGroup = MessageConstant.VOUCHER_ORDER_CONSUMER_GROUP,
         messageModel = MessageModel.CLUSTERING,
-        consumeThreadMax = 32,
-        maxReconsumeTimes = 3
+        consumeThreadMax = SeckillConstant.CONSUME_THREAD_MAX,
+        maxReconsumeTimes = SeckillConstant.MAX_RECONSUME_TIMES
 )
 @RequiredArgsConstructor
 public class SeckillConsumer implements RocketMQListener<SeckillOrder> {
 
     private static final DefaultRedisScript<Long> ROLLBACK_SCRIPT =
-            LuaScriptUtil.load("lua/rollback.lua", Long.class);
+            LuaScriptUtil.load(SeckillConstant.LUA_ROLLBACK_SCRIPT, Long.class);
 
     private final SeckillService seckillService;
     private final StringRedisTemplate stringRedisTemplate;
@@ -44,7 +45,7 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrder> {
 
         // 读取当前状态，只有终态(SUCCESS/FAILED)才跳过
         String status = stringRedisTemplate.opsForValue().get(idempotencyKey);
-        if ("SUCCESS".equals(status) || "FAILED".equals(status)) {
+        if (SeckillConstant.STATUS_SUCCESS.equals(status) || SeckillConstant.STATUS_FAILED.equals(status)) {
             log.info("订单已是终态，跳过, orderId={}, status={}", order.getId(), status);
             return;
         }
@@ -58,7 +59,7 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrder> {
 
         try {
             seckillService.createSeckillOrder(order);
-            stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS");
+            stringRedisTemplate.opsForValue().set(idempotencyKey, SeckillConstant.STATUS_SUCCESS);
         } catch (BusinessException e) {
             // 确定性失败：不重试，直接终结
             log.error("业务异常, orderId={}", order.getId(), e);
@@ -76,7 +77,7 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrder> {
 
         if (count > 0) {
             // 订单已存在，标记 SUCCESS
-            stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS");
+            stringRedisTemplate.opsForValue().set(idempotencyKey, SeckillConstant.STATUS_SUCCESS);
             return;
         }
 
@@ -86,7 +87,7 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrder> {
         stringRedisTemplate.execute(
                 ROLLBACK_SCRIPT,
                 Arrays.asList(stockKey, orderKey, idempotencyKey),
-                String.valueOf(order.getUserId()), "FAIL", "86400"
+                String.valueOf(order.getUserId()), SeckillConstant.ROLLBACK_RESULT_FAIL, SeckillConstant.ROLLBACK_EXPIRE_SECONDS
         );
         log.error("订单未写入，已回滚, orderId={}, reason={}", order.getId(), reason);
     }

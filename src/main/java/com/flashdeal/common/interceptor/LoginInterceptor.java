@@ -2,6 +2,7 @@ package com.flashdeal.common.interceptor;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flashdeal.common.constant.JwtClaimsConstant;
+import com.flashdeal.common.constant.MessageConstant;
 import com.flashdeal.common.properties.JwtProperties;
 import com.flashdeal.common.utils.JwtUtil;
 import com.flashdeal.common.utils.UserHolder;
@@ -66,9 +67,9 @@ public class LoginInterceptor implements HandlerInterceptor {
 
     private void writeErrorResponse(HttpServletResponse response) throws Exception {
         response.setStatus(200);
-        response.setContentType("application/json;charset=UTF-8");
+        response.setContentType(MessageConstant.CONTENT_TYPE_JSON);
         response.getWriter().write(objectMapper.writeValueAsString(
-                Result.error("用户未登录")
+                Result.error(MessageConstant.USER_NOT_LOGIN)
         ));
     }
 }

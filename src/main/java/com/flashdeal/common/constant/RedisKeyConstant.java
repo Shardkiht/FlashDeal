@@ -20,4 +20,7 @@ public class RedisKeyConstant {
     public static String getConsumedKey(Long userId, Long voucherId) {
         return "seckill:{" + userId + "}:{" + voucherId + "}:consumed";
     }
+
+    // 限流器 key
+    public static final String LIMITER_KEY = "seckill:limiter";
 }

@@ -3,6 +3,7 @@ package com.flashdeal.service.impl;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.flashdeal.common.constant.MessageConstant;
 import com.flashdeal.common.constant.RedisKeyConstant;
+import com.flashdeal.common.constant.SeckillConstant;
 import com.flashdeal.common.utils.SnowflakeIdGenerate;
 import com.flashdeal.domain.Result;
 import com.flashdeal.domain.SeckillOrder;
@@ -13,7 +14,6 @@ import com.flashdeal.service.api.SeckillVoucherService;
 import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.common.utils.UserHolder;
 import com.flashdeal.rocketmq.SeckillProducer;
-import io.lettuce.core.RedisCommandTimeoutException;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,7 +42,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
 
     @PostConstruct
     public void initSeckillStock() {
-        if (!Arrays.asList(environment.getActiveProfiles()).contains("dev")) {
+        if (!Arrays.asList(environment.getActiveProfiles()).contains(SeckillConstant.PROFILE_DEV)) {
             log.info("非 dev 环境，跳过 Redis 库存初始化");
             return;
         }
@@ -66,10 +66,10 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
     }
 
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT =
-            LuaScriptUtil.load("lua/seckill.lua", Long.class);
+            LuaScriptUtil.load(SeckillConstant.LUA_SECKILL_SCRIPT, Long.class);
 
     private static final DefaultRedisScript<Long> ROLLBACK_SCRIPT =
-            LuaScriptUtil.load("lua/rollback.lua", Long.class);
+            LuaScriptUtil.load(SeckillConstant.LUA_ROLLBACK_SCRIPT, Long.class);
 
     @Override
     public Result<String> seckillVoucher(Long voucherId) {
@@ -100,21 +100,21 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
                     .id(orderId)
                     .userId(userId)
                     .voucherId(voucherId)
-                    .payType(1)
-                    .status(1)
+                    .payType(SeckillConstant.PAY_TYPE_BALANCE)
+                    .status(SeckillConstant.ORDER_STATUS_UNPAID)
                     .createTime(LocalDateTime.now())
                     .updateTime(LocalDateTime.now())
                     .build();
 
             // 4. MQ发送前先标记 PROCESSING，让用户及时感知这个订单正在处理
-            stringRedisTemplate.opsForValue().set(idempotencyKey, "PROCESSING");
+            stringRedisTemplate.opsForValue().set(idempotencyKey, SeckillConstant.STATUS_PROCESSING);
 
             // 5. 异步发送 MQ，失败回调自动回滚 Redis 库存
             log.info("开始异步发送MQ, orderId={}", orderId);
             seckillProducer.sendOrderAsync(seckillOrder, stockKey, orderKey, idempotencyKey);
 
             // 返回"处理中"，前端轮询用户最近的秒杀订单状态
-            return Result.success("正在抢购中");
+            return Result.success(MessageConstant.SECKILL_PROCESSING_MSG);
 
             // 异常处理，回滚 Redis 库存
         } catch (Exception e) {
@@ -122,9 +122,9 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
             stringRedisTemplate.execute(
                     ROLLBACK_SCRIPT,
                     Arrays.asList(stockKey, orderKey, idempotencyKey),
-                    String.valueOf(userId), "FAIL", "3600"
+                    String.valueOf(userId), SeckillConstant.ROLLBACK_RESULT_FAIL, SeckillConstant.ROLLBACK_EXPIRE_SECONDS
             );
-            return Result.error("抢购失败，请稍后重试");
+            return Result.error(MessageConstant.SECKILL_FAIL_MSG);
         }
     }
 
@@ -135,7 +135,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
         Long voucherId = seckillOrder.getVoucherId();
 
         // 确保一个用户只能购买一次
-        Long count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+        Long count = query().eq(SeckillConstant.COL_USER_ID, userId).eq(SeckillConstant.COL_VOUCHER_ID, voucherId).count();
         if (count > 0) {
             log.error(MessageConstant.REPEAT_ORDER);
             throw new BusinessException(MessageConstant.REPEAT_ORDER);
@@ -164,21 +164,21 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
         String status = stringRedisTemplate.opsForValue().get(idempotencyKey);
 
         // 2. 查数据库
-        Long count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+        Long count = query().eq(SeckillConstant.COL_USER_ID, userId).eq(SeckillConstant.COL_VOUCHER_ID, voucherId).count();
 
         if (count > 0) {
             // 数据库有订单，Redis 不一致则修复
-            if (!"SUCCESS".equals(status)) {
-                stringRedisTemplate.opsForValue().set(idempotencyKey, "SUCCESS");
+            if (!SeckillConstant.STATUS_SUCCESS.equals(status)) {
+                stringRedisTemplate.opsForValue().set(idempotencyKey, SeckillConstant.STATUS_SUCCESS);
             }
-            return "SUCCESS";
+            return SeckillConstant.STATUS_SUCCESS;
         }
 
         // 3. 数据库无订单
-        if ("PROCESSING".equals(status)) {
-            return "PROCESSING";
+        if (SeckillConstant.STATUS_PROCESSING.equals(status)) {
+            return SeckillConstant.STATUS_PROCESSING;
         }
 
-        return "FAILED";
+        return SeckillConstant.STATUS_FAILED;
     }
 }
