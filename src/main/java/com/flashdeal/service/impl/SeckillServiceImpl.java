@@ -5,7 +5,6 @@ import com.flashdeal.common.constant.MessageConstant;
 import com.flashdeal.common.constant.RedisKeyConstant;
 import com.flashdeal.common.constant.SeckillConstant;
 import com.flashdeal.common.utils.SnowflakeIdGenerate;
-import com.flashdeal.domain.Result;
 import com.flashdeal.domain.SeckillOrder;
 import com.flashdeal.common.exception.BusinessException;
 import com.flashdeal.mapper.SeckillOrderMapper;
@@ -72,7 +71,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
             LuaScriptUtil.load(SeckillConstant.LUA_ROLLBACK_SCRIPT, Long.class);
 
     @Override
-    public Result<String> seckillVoucher(Long voucherId) {
+    public String seckillVoucher(Long voucherId) {
         Long userId = UserHolder.getCurrentId();
 
         String stockKey = RedisKeyConstant.getSeckillStockKey(voucherId);
@@ -89,7 +88,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
 
             // 2. 结果判断
             if (result != 0) {
-                return Result.error(result == 1
+                throw new BusinessException(result == 1
                         ? MessageConstant.VOUCHER_INSUFFICIENT
                         : MessageConstant.REPEAT_ORDER);
             }
@@ -113,10 +112,13 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
             log.info("开始异步发送MQ, orderId={}", orderId);
             seckillProducer.sendOrderAsync(seckillOrder, stockKey, orderKey, idempotencyKey);
 
-            // 返回"处理中"，前端轮询用户最近的秒杀订单状态
-            return Result.success(MessageConstant.SECKILL_PROCESSING_MSG);
-
-            // 异常处理，回滚 Redis 库存
+            // 返回处理中状态，前端轮询查询接口获取最终结果
+            return MessageConstant.SECKILL_PROCESSING;
+                
+            // 业务异常（库存不足/重复下单）：Lua 未扣减库存，直接抛出不回滚
+        } catch (BusinessException e) {
+            throw e;
+            // 系统异常：Lua 已扣减库存，回滚后抛出原始异常
         } catch (Exception e) {
             log.error("秒杀失败, 回滚Redis, voucherId={}, userId={}", voucherId, userId, e);
             stringRedisTemplate.execute(
@@ -124,10 +126,10 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
                     Arrays.asList(stockKey, orderKey, idempotencyKey),
                     String.valueOf(userId), SeckillConstant.ROLLBACK_RESULT_FAIL, SeckillConstant.ROLLBACK_EXPIRE_SECONDS
             );
-            return Result.error(MessageConstant.SECKILL_FAIL_MSG);
+            throw e;
         }
     }
-
+    
     @Override
     @Transactional
     public void createSeckillOrder(SeckillOrder seckillOrder) {

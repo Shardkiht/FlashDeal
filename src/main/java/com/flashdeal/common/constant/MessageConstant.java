@@ -20,6 +20,6 @@ public class MessageConstant {
     // ========== 响应相关 ==========
     public static final String CONTENT_TYPE_JSON = "application/json;charset=UTF-8";
     public static final String RATE_LIMIT = "RATE_LIMIT";
-    public static final String SECKILL_FAIL_MSG = "抢购失败，请稍后重试";
-    public static final String SECKILL_PROCESSING_MSG = "正在抢购中";
+    public static final String SECKILL_FAIL = "抢购失败，请稍后重试";
+    public static final String SECKILL_PROCESSING = "正在抢购中";
 }

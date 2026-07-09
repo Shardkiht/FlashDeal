@@ -1,7 +1,6 @@
 package com.flashdeal.service.api;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.flashdeal.domain.Result;
 import com.flashdeal.domain.SeckillOrder;
 
 /**
@@ -15,7 +14,7 @@ public interface SeckillService extends IService<SeckillOrder> {
      * @param voucherId 优惠券id
      * @return 处理状态
      */
-    Result<String> seckillVoucher(Long voucherId);
+    String seckillVoucher(Long voucherId);
 
     /**
      * 创建订单
