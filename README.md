@@ -124,7 +124,7 @@ flowchart TB
     subgraph Cache["缓存层 Redis"]
         STOCK[("seckill:{id}:stock<br/>库存")]
         ORDER[("seckill:{id}:order<br/>已购用户 Set")]
-        IDEM[("seckill:{userId}:{voucherId}:consumed<br/>三态幂等键")]
+        IDEM[("seckill:{voucherId}:userId:consumed<br/>三态幂等键")]
 
         LUA["Lua 脚本<br/>原子预扣"]
         RBLUA["rollback.lua<br/>原子回滚"]
@@ -241,7 +241,6 @@ flowchart TD
     style SKIP fill:#f9a825,color:#212121
     style THROW1 fill:#b71c1c,color:#fff
     style DLQ fill:#b71c1c,color:#fff
-    style RBLUA fill:#2e7d32,color:#fff
     style RBLUA2 fill:#e65100,color:#fff
     style DBSAVE fill:#1565c0,color:#fff
 ```
@@ -298,6 +297,8 @@ FlashDeal
 │   │   │       ├── constant/                    # 常量
 │   │   │       │   ├── RedisKeyConstant.java
 │   │   │       │   ├── MessageConstant.java
+│   │   │       │   ├── SeckillConstant.java
+│   │   │       │   ├── PathConstant.java
 │   │   │       │   └── JwtClaimsConstant.java
 │   │   │       ├── exception/                   # 异常处理
 │   │   │       │   ├── BaseException.java
@@ -608,7 +609,7 @@ return 0                      -- 成功
 ```lua
 local stockKey = KEYS[1]      -- 库存 key
 local orderKey = KEYS[2]      -- 已购用户集合 key
-local idempotencyKey = KEYS[3]      -- 幂等键: seckill:{userId}:{voucherId}:consumed
+local idempotencyKey = KEYS[3]      -- 幂等键: seckill:{voucherId}:userId:consumed
 local userId = ARGV[1]      -- 用户 ID
 local mode = ARGV[2]      -- "DELETE" 清除状态 / "FAIL" 标记失败
 
