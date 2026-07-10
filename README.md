@@ -21,7 +21,8 @@
 
 ## 📖 项目简介
 
-**FlashDeal** 是一个面向高并发场景的秒杀系统，核心解决电商促销、限量抢购等业务中常见的三大难题：**超卖**、**重复下单**、**流量洪峰**。系统通过 Redis Lua 脚本实现原子性库存预扣减，借助 RocketMQ 完成订单异步落库，并使用 Redisson 限流器保障系统稳定性。
+**FlashDeal** 是一个面向高并发场景的秒杀系统，核心解决电商促销、限量抢购等业务中常见的三大难题：**超卖**、**重复下单**、*
+*流量洪峰**。系统通过 Redis Lua 脚本实现原子性库存预扣减，借助 RocketMQ 完成订单异步落库，并使用 Redisson 限流器保障系统稳定性。
 
 整体设计遵循"**前置拦截 → 原子预扣 → 异步落库 → 失败回滚**"
 的分层防御理念，单机可支撑每秒数千次秒杀请求，在保证业务正确性的同时最大化吞吐能力。项目代码结构清晰、注释完善，既可作为生产级秒杀方案的参考实现，也适合作为学习高并发架构设计的实战案例。
@@ -66,19 +67,19 @@
 
 ## ✨ 核心特性
 
-| 特性             | 实现方式                              | 说明                                                    |
-|:---------------|:----------------------------------|:------------------------------------------------------|
-| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，压测中拦截 92.43% 请求，超出直接返回 HTTP 429       |
-| 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时，从 `authentication` header 提取     |
-| ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态                        |
-| 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式              |
-| ️ **库存预热**     | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （仅 dev 环境）                  |
-| 📨 **异步落库**    | RocketMQ 异步发送                     | Redis 预扣成功后异步发送 MQ；ServiceImpl 统一捕获异常并回滚      |
-| **DB 乐观锁**     | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                      |
-| ️ **三态幂等**     | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                              |
-| 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0`    |
-| 🔄 **失败回滚**    | Redis Lua 原子回滚 + FAIL 标记            | MQ 发送失败 / 消费业务异常时原子回滚库存并标记 FAILED，用户可立即重试                    |
-| 🔍 **定时对账**    | `@Scheduled` + Redis SCAN              | 每 5 分钟扫描 PROCESSING 卡单，对比 DB 修复不一致数据，兜底 MQ 重试耗尽场景              |
+| 特性             | 实现方式                              | 说明                                                 |
+|:---------------|:----------------------------------|:---------------------------------------------------|
+| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，压测中拦截 92.43% 请求，超出直接返回 HTTP 429    |
+| 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时，从 `authentication` header 提取  |
+| ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态                     |
+| 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式           |
+| ️ **库存预热**     | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （仅 dev 环境）               |
+| 📨 **异步落库**    | RocketMQ 异步发送                     | Redis 预扣成功后异步发送 MQ；ServiceImpl 统一捕获异常并回滚           |
+| **DB 乐观锁**     | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                   |
+| ️ **三态幂等**     | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                           |
+| 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0` |
+| 🔄 **失败回滚**    | Redis Lua 原子回滚 + FAIL 标记          | MQ 发送失败 / 消费业务异常时原子回滚库存并标记 FAILED，用户可立即重试          |
+| 🔍 **定时对账**    | `@Scheduled` + Redis SCAN         | 每 5 分钟扫描 PROCESSING 卡单，对比 DB 修复不一致数据，兜底 MQ 重试耗尽场景  |
 
 ---
 
@@ -288,8 +289,10 @@ FlashDeal
 │   │   │   │   ├── User.java
 │   │   │   │   ├── SeckillVoucher.java
 │   │   │   │   ├── SeckillOrder.java
+│   │   │   │   ├── dto/
+│   │   │   │   │   ├── SeckillOrderMessage.java    # ⭐ MQ 消息体（userId + voucherId）
+│   │   │   │   │   └── UserLoginDTO.java
 │   │   │   │   ├── Result.java                  # 统一返回结果
-│   │   │   │   ├── dto/UserLoginDTO.java
 │   │   │   │   └── vo/UserLoginVO.java
 │   │   │   └── common/                          # 公共组件
 │   │   │       ├── config/                      # 配置类
@@ -635,7 +638,8 @@ return 1
 
 > **关键点**：
 > - 预扣脚本先 `sadd` 再 `decr`，相比 `sismember` + `sadd` + `decr` 三步，减少一次 Redis 调用，同时利用 `sadd` 的返回值天然完成判重
-> - 回滚脚本支持两种模式：`FAIL` 模式标记失败并设置 TTL（1 小时），回滚库存+移除购买记录，用户可立即重试；`DELETE` 模式直接清除幂等键，用于彻底清理状态
+> - 回滚脚本支持两种模式：`FAIL` 模式标记失败并设置 TTL（1 小时），回滚库存+移除购买记录，用户可立即重试；`DELETE`
+    模式直接清除幂等键，用于彻底清理状态
 
 ### 2. 全局唯一订单 ID
 
@@ -656,12 +660,14 @@ return 1
 
 系统采用"**Redis 预扣 + MQ 异步落库**"模式，Redis 是库存的“快”视图，DB 是“真”数据源。一致性保障措施：
 
-- **MQ 异步发送**：`sendOrderAsync()` 内部调用 RocketMQ `asyncSend()`，立即返回"正在抢购中"。发送失败时（同步异常或异步回调失败）均通过 `rollback.lua` 原子回滚 Redis（库存+资格一次完成）并标记幂等键为 FAILED，用户可立即重试
+- **MQ 异步发送**：`sendOrderAsync()` 内部调用 RocketMQ `asyncSend()`，立即返回"正在抢购中"。发送失败时（同步异常或异步回调失败）均通过
+  `rollback.lua` 原子回滚 Redis（库存+资格一次完成）并标记幂等键为 FAILED，用户可立即重试
 - **三态幂等**：`PROCESSING/SUCCESS/FAILED` 三态设计，消费端读取幂等键状态，只有终态（SUCCESS/FAILED）才跳过，PROCESSING 继续处理
 - **终态判断**：消费端先查 Redis 状态，若为 SUCCESS/FAILED 直接跳过；若状态丢失则进入兜底流程
 - **DB 乐观锁兜底**：`WHERE stock > 0` 防止超卖，DB 层再次校验防重复（唯一索引 `uk_user_voucher`）
 - **消费端异常分级**：确定性失败（BusinessException）直接终结并回滚；偶发性异常抛出让 MQ 重试（最多 3 次）
-- **订单落库检查**：`handleFail()` 先查 DB 确认订单状态，已落库则标记 SUCCESS 不回滚，未落库通过 `rollback.lua` 原子回滚库存并标记 FAILED
+- **订单落库检查**：`handleFail()` 先查 DB 确认订单状态，已落库则标记 SUCCESS 不回滚，未落库通过 `rollback.lua` 原子回滚库存并标记
+  FAILED
 
 ### 4. 分层防御体系
 
@@ -672,13 +678,25 @@ return 1
 ### 5. MQ 消费与容错机制
 
 - **异步发送**：`sendOrderAsync()` 使用 RocketMQ `asyncSend()`，成功回调记录日志，失败回调触发回滚
-- **失败回滚**：MQ 发送失败时（同步异常由 ServiceImpl 捕获、异步回调失败由 `onException` 处理）均调用 `rollback.lua` 原子回滚（库存+1、移除用户购买记录）并标记幂等键为 FAILED（TTL 1 小时），用户可立即重试
+- **失败回滚**：MQ 发送失败时（同步异常由 ServiceImpl 捕获、异步回调失败由 `onException` 处理）均调用 `rollback.lua`
+  原子回滚（库存+1、移除用户购买记录）并标记幂等键为 FAILED（TTL 1 小时），用户可立即重试
 - **消费端幂等**：读取 Redis 幂等键状态，SUCCESS/FAILED 终态跳过，PROCESSING 继续处理
 - **异常分级处理**：
     - 业务异常（BusinessException）：确定性失败，调用 `handleFail()` 检查 DB 是否已落库，未落库则回滚并标记 FAILED
     - 系统异常：抛出异常触发 MQ 重试，最多重试 3 次后进入死信队列
 
-### 6. 定时对账兜底机制
+### 6. MQ 消费与订单创建
+
+MQ 消息体从完整 `SeckillOrder` 精简为只含 `userId` 和 `voucherId` 的 `SeckillOrderMessage`，Producer 端不再构建订单对象，Consumer
+端接收轻量消息后在 `createSeckillOrder` 方法中完成订单构建与 DB 落库。这种设计使消息更轻量，职责更清晰：
+
+- **Producer**：只负责发送最小必要信息
+- **Consumer**：接收消息后完成完整订单构建与持久化
+- **Service**：专注业务逻辑，不感知 MQ 细节
+
+> 这种设计避免了在 Controller 或 Service 层直接构造 MQ 消息体，保持了各层职责分离。
+
+### 7. 定时对账兜底机制
 
 MQ 重试耗尽后，订单可能卡在 `PROCESSING` 状态（消费者异常、进程崩溃等）。定时对账任务每 5 分钟执行一次，作为最终一致性兜底：
 
@@ -752,7 +770,6 @@ chmod +x seckill_test.sh single_user_test.sh
 - [x] 接口压测脚本（wrk）
 - [x] 定时对账任务（PROCESSING 卡单兜底修复）
 - [ ] Docker Compose 一键部署
-
 
 ---
 

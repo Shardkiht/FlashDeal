@@ -6,6 +6,7 @@ import com.flashdeal.common.constant.RedisKeyConstant;
 import com.flashdeal.common.constant.SeckillConstant;
 import com.flashdeal.common.utils.SnowflakeIdGenerate;
 import com.flashdeal.domain.SeckillOrder;
+import com.flashdeal.domain.dto.SeckillOrderMessage;
 import com.flashdeal.common.exception.BusinessException;
 import com.flashdeal.mapper.SeckillOrderMapper;
 import com.flashdeal.service.api.SeckillService;
@@ -93,24 +94,12 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
                         : MessageConstant.REPEAT_ORDER);
             }
 
-            // 3. 创建订单对象
-            Long orderId = snowflakeIdGenerate.nextId();
-            SeckillOrder seckillOrder = SeckillOrder.builder()
-                    .id(orderId)
-                    .userId(userId)
-                    .voucherId(voucherId)
-                    .payType(SeckillConstant.PAY_TYPE_BALANCE)
-                    .status(SeckillConstant.ORDER_STATUS_UNPAID)
-                    .createTime(LocalDateTime.now())
-                    .updateTime(LocalDateTime.now())
-                    .build();
-
-            // 4. MQ发送前先标记 PROCESSING，让用户及时感知这个订单正在处理
+            // 3. MQ发送前先标记 PROCESSING，让用户及时感知这个订单正在处理
             stringRedisTemplate.opsForValue().set(idempotencyKey, SeckillConstant.STATUS_PROCESSING);
 
-            // 5. 异步发送 MQ，失败回调自动回滚 Redis 库存
-            log.info("开始异步发送MQ, orderId={}", orderId);
-            seckillProducer.sendOrderAsync(seckillOrder, stockKey, orderKey, idempotencyKey);
+            // 4. 异步发送 MQ，失败回调自动回滚 Redis 库存
+            log.info("开始异步发送MQ, userId={}, voucherId={}", userId, voucherId);
+            seckillProducer.sendOrderAsync(new SeckillOrderMessage(userId, voucherId), stockKey, orderKey, idempotencyKey);
 
             // 返回处理中状态，前端轮询查询接口获取最终结果
             return MessageConstant.SECKILL_PROCESSING;
@@ -133,10 +122,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
     
     @Override
     @Transactional
-    public void createSeckillOrder(SeckillOrder seckillOrder) {
-        Long userId = seckillOrder.getUserId();
-        Long voucherId = seckillOrder.getVoucherId();
-
+    public void createSeckillOrder(Long userId, Long voucherId) {
         // 确保一个用户只能购买一次
         Long count = query().eq(SeckillConstant.COL_USER_ID, userId).eq(SeckillConstant.COL_VOUCHER_ID, voucherId).count();
         if (count > 0) {
@@ -154,8 +140,18 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
             log.error(MessageConstant.VOUCHER_STOCK_NOT_ENOUGH);
             throw new BusinessException(MessageConstant.VOUCHER_STOCK_NOT_ENOUGH);
         }
-        save(seckillOrder);
 
+        // 构建订单并写入数据库
+        SeckillOrder seckillOrder = SeckillOrder.builder()
+                .id(snowflakeIdGenerate.nextId())
+                .userId(userId)
+                .voucherId(voucherId)
+                .payType(SeckillConstant.PAY_TYPE_BALANCE)
+                .status(SeckillConstant.ORDER_STATUS_UNPAID)
+                .createTime(LocalDateTime.now())
+                .updateTime(LocalDateTime.now())
+                .build();
+        save(seckillOrder);
     }
 
     @Override

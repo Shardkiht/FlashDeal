@@ -19,9 +19,10 @@ public interface SeckillService extends IService<SeckillOrder> {
     /**
      * 创建订单
      *
-     * @param seckillOrder 优惠券订单
+     * @param userId    用户id
+     * @param voucherId 优惠券id
      */
-    void createSeckillOrder(SeckillOrder seckillOrder);
+    void createSeckillOrder(Long userId, Long voucherId);
 
     /**
      * 查询秒杀状态

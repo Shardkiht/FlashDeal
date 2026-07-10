@@ -5,7 +5,7 @@ import com.flashdeal.common.constant.RedisKeyConstant;
 import com.flashdeal.common.constant.SeckillConstant;
 import com.flashdeal.common.exception.BusinessException;
 import com.flashdeal.common.utils.LuaScriptUtil;
-import com.flashdeal.domain.SeckillOrder;
+import com.flashdeal.domain.dto.SeckillOrderMessage;
 import com.flashdeal.service.api.SeckillService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,7 +31,7 @@ import java.util.Arrays;
         maxReconsumeTimes = SeckillConstant.MAX_RECONSUME_TIMES
 )
 @RequiredArgsConstructor
-public class SeckillConsumer implements RocketMQListener<SeckillOrder> {
+public class SeckillConsumer implements RocketMQListener<SeckillOrderMessage> {
 
     private static final DefaultRedisScript<Long> ROLLBACK_SCRIPT =
             LuaScriptUtil.load(SeckillConstant.LUA_ROLLBACK_SCRIPT, Long.class);
@@ -40,40 +40,45 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrder> {
     private final StringRedisTemplate stringRedisTemplate;
 
     @Override
-    public void onMessage(SeckillOrder order) {
-        String idempotencyKey = RedisKeyConstant.getConsumedKey(order.getUserId(), order.getVoucherId());
+    public void onMessage(SeckillOrderMessage message) {
+        Long userId = message.getUserId();
+        Long voucherId = message.getVoucherId();
+        String idempotencyKey = RedisKeyConstant.getConsumedKey(userId, voucherId);
 
         // 读取当前状态，只有终态(SUCCESS/FAILED)才跳过
         String status = stringRedisTemplate.opsForValue().get(idempotencyKey);
         if (SeckillConstant.STATUS_SUCCESS.equals(status) || SeckillConstant.STATUS_FAILED.equals(status)) {
-            log.info("订单已是终态，跳过, orderId={}, status={}", order.getId(), status);
+            log.info("订单已是终态，跳过, userId={}, voucherId={}, status={}", userId, voucherId, status);
             return;
         }
 
         // Redis 状态丢失，回滚库存让用户重试
         if (null == status) {
-            log.warn("Redis 状态丢失，进入兜底处理, orderId={}", order.getId());
-            handleFail(order, idempotencyKey, "Redis状态丢失");
+            log.warn("Redis 状态丢失，进入兜底处理, userId={}, voucherId={}", userId, voucherId);
+            handleFail(userId, voucherId, idempotencyKey, "Redis状态丢失");
             return;
         }
 
         try {
-            seckillService.createSeckillOrder(order);
+            seckillService.createSeckillOrder(userId, voucherId);
             stringRedisTemplate.opsForValue().set(idempotencyKey, SeckillConstant.STATUS_SUCCESS);
         } catch (BusinessException e) {
             // 确定性失败：不重试，直接终结
-            log.error("业务异常, orderId={}", order.getId(), e);
-            handleFail(order, idempotencyKey, e.getMessage());
+            log.error("业务异常, userId={}, voucherId={}", userId, voucherId, e);
+            handleFail(userId, voucherId, idempotencyKey, e.getMessage());
         } catch (Exception e) {
             // 偶发性失败：继续抛出交给 MQ 重试，状态仍是 PROCESSING
-            log.error("系统异常, orderId={}", order.getId(), e);
+            log.error("系统异常, userId={}, voucherId={}", userId, voucherId, e);
             throw e;
         }
     }
 
-    private void handleFail(SeckillOrder order, String idempotencyKey, String reason) {
+    private void handleFail(Long userId, Long voucherId, String idempotencyKey, String reason) {
         // 1. 查库确认订单是否已落库
-        long count = seckillService.query().eq("id", order.getId()).count();
+        long count = seckillService.query()
+                .eq(SeckillConstant.COL_USER_ID, userId)
+                .eq(SeckillConstant.COL_VOUCHER_ID, voucherId)
+                .count();
 
         if (count > 0) {
             // 订单已存在，标记 SUCCESS
@@ -82,13 +87,13 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrder> {
         }
 
         // 2. 订单未写入，回滚 Redis
-        String stockKey = RedisKeyConstant.getSeckillStockKey(order.getVoucherId());
-        String orderKey = RedisKeyConstant.getSeckillOrderKey(order.getVoucherId());
+        String stockKey = RedisKeyConstant.getSeckillStockKey(voucherId);
+        String orderKey = RedisKeyConstant.getSeckillOrderKey(voucherId);
         stringRedisTemplate.execute(
                 ROLLBACK_SCRIPT,
                 Arrays.asList(stockKey, orderKey, idempotencyKey),
-                String.valueOf(order.getUserId()), SeckillConstant.ROLLBACK_RESULT_FAIL, SeckillConstant.ROLLBACK_EXPIRE_SECONDS
+                String.valueOf(userId), SeckillConstant.ROLLBACK_RESULT_FAIL, SeckillConstant.ROLLBACK_EXPIRE_SECONDS
         );
-        log.error("订单未写入，已回滚, orderId={}, reason={}", order.getId(), reason);
+        log.error("订单未写入，已回滚, userId={}, voucherId={}, reason={}", userId, voucherId, reason);
     }
 }
