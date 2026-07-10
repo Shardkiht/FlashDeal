@@ -24,4 +24,7 @@ public class RedisKeyConstant {
 
     // 限流器 key
     public static final String LIMITER_KEY = "seckill:limiter";
+
+    // 幂等键 SCAN 匹配模式
+    public static final String CONSUMED_KEY_PATTERN = "seckill:*:consumed";
 }

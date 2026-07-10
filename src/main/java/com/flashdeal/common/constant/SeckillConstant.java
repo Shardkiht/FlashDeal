@@ -36,6 +36,10 @@ public class SeckillConstant {
     public static final String LUA_SECKILL_SCRIPT = "lua/seckill.lua";
     public static final String LUA_ROLLBACK_SCRIPT = "lua/rollback.lua";
 
+    // ========== 定时对账 ==========
+    /** 对账任务执行间隔（毫秒），5 分钟 */
+    public static final long RECONCILE_INTERVAL_MS = 5 * 60 * 1000L;
+
     // ========== 环境与数据库 ==========
     /** 开发环境 profile 名称 */
     public static final String PROFILE_DEV = "dev";

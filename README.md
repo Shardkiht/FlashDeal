@@ -78,6 +78,7 @@
 | ️ **三态幂等**     | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                              |
 | 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0`    |
 | 🔄 **失败回滚**    | Redis Lua 原子回滚 + FAIL 标记            | MQ 发送失败 / 消费业务异常时原子回滚库存并标记 FAILED，用户可立即重试                    |
+| 🔍 **定时对账**    | `@Scheduled` + Redis SCAN              | 每 5 分钟扫描 PROCESSING 卡单，对比 DB 修复不一致数据，兜底 MQ 重试耗尽场景              |
 
 ---
 
@@ -276,6 +277,8 @@ FlashDeal
 │   │   │   │       ├── UserServiceImpl.java
 │   │   │   │       ├── SeckillVoucherServiceImpl.java   # 添加秒杀券+同步库存到Redis
 │   │   │   │       └── SeckillServiceImpl.java          # ⭐ 秒杀核心逻辑
+│   │   │   ├── task/                            # 定时任务
+│   │   │   │   └── SeckillReconciliationTask.java  # ⭐ 定时对账（PROCESSING 卡单修复）
 │   │   │   ├── rocketmq/                        # MQ 生产/消费
 │   │   │   │   ├── SeckillProducer.java         # 异步发送+失败回滚
 │   │   │   │   ├── SeckillConsumer.java         # 幂等消费+失败回滚
@@ -675,6 +678,18 @@ return 1
     - 业务异常（BusinessException）：确定性失败，调用 `handleFail()` 检查 DB 是否已落库，未落库则回滚并标记 FAILED
     - 系统异常：抛出异常触发 MQ 重试，最多重试 3 次后进入死信队列
 
+### 6. 定时对账兜底机制
+
+MQ 重试耗尽后，订单可能卡在 `PROCESSING` 状态（消费者异常、进程崩溃等）。定时对账任务每 5 分钟执行一次，作为最终一致性兜底：
+
+1. **SCAN 扫描**：遍历 Redis 中所有 `seckill:*:consumed` 幂等键，过滤出 `PROCESSING` 状态
+2. **对比 DB**：解析 key 中的 `voucherId` 和 `userId`，查询 DB 订单是否存在
+3. **修复不一致**：
+    - DB 有订单 → Redis 修正为 `SUCCESS`（消费者已落库但标记前崩溃）
+    - DB 无订单 → 执行 `rollback.lua` 原子回滚库存+资格，标记 `FAILED`（MQ 重试耗尽仍未落库）
+
+> 5 分钟间隔的设定确保大于 MQ 3 次重试的总耗时（~4min），避免对账与 MQ 重试冲突导致库存多加。
+
 ---
 
 ## 🧪 压测脚本
@@ -735,9 +750,9 @@ chmod +x seckill_test.sh single_user_test.sh
 - [x] 三态幂等与状态查询接口
 - [x] 失败回滚与 Lua 原子恢复
 - [x] 接口压测脚本（wrk）
+- [x] 定时对账任务（PROCESSING 卡单兜底修复）
 - [ ] Docker Compose 一键部署
-- [ ] Prometheus + Grafana 监控
-- [ ] 秒杀券预热与活动管理后台
+
 
 ---
 

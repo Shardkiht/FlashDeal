@@ -118,6 +118,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
             // 业务异常（库存不足/重复下单）：Lua 未扣减库存，直接抛出不回滚
         } catch (BusinessException e) {
             throw e;
+
             // 系统异常：Lua 已扣减库存，回滚后抛出原始异常
         } catch (Exception e) {
             log.error("秒杀失败, 回滚Redis, voucherId={}, userId={}", voucherId, userId, e);
