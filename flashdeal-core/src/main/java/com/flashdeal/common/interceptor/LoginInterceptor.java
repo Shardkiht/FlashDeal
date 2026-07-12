@@ -51,7 +51,11 @@ public class LoginInterceptor implements HandlerInterceptor {
             Claims claims = JwtUtil.parseJWT(jwtProperties.getUserSecretKey(), token);
             Long userId = Long.valueOf(claims.get(JwtClaimsConstant.USER_ID).toString());
             log.info("当前用户id：{}", userId);
-            UserHolder.setCurrentId(userId);
+            UserHolder.set(new UserHolder.Context(
+                    userId,
+                    getRealClientIp(request),
+                    request.getHeader("User-Agent")
+            ));
             return true;
         } catch (Exception ex) {
             log.error("JWT解析失败: {}", ex.getMessage(), ex);
@@ -62,7 +66,15 @@ public class LoginInterceptor implements HandlerInterceptor {
 
     @Override
     public void afterCompletion(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler, Exception ex) {
-        UserHolder.removeCurrentId();
+        UserHolder.remove();
+    }
+
+    private String getRealClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip != null && !ip.isBlank() && !"unknown".equalsIgnoreCase(ip)) {
+            return ip.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 
     private void writeErrorResponse(HttpServletResponse response) throws Exception {

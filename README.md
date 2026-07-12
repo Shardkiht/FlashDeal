@@ -137,7 +137,7 @@ flowchart TB
     end
 
     subgraph DB["持久层"]
-        MYSQL[("MySQL<br/>tb_seckill_voucher<br/>tb_voucher_order<br/>user")]
+        MYSQL[("MySQL<br/>tb_seckill_voucher<br/>voucher_order<br/>user")]
     end
 
     U -->|HTTP 请求| RL
@@ -377,7 +377,7 @@ CREATE TABLE `tb_seckill_voucher`
   DEFAULT CHARSET = utf8mb4;
 
 -- 优惠券订单表
-CREATE TABLE `tb_voucher_order`
+CREATE TABLE `voucher_order`
 (
     `id`          BIGINT NOT NULL,
     `user_id`     BIGINT NOT NULL,

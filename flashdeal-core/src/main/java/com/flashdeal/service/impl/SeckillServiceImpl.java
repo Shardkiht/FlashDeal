@@ -13,6 +13,9 @@ import com.flashdeal.service.api.SeckillService;
 import com.flashdeal.service.api.SeckillVoucherService;
 import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.common.utils.UserHolder;
+import com.flashdeal.riskguard.api.RiskDecision;
+import com.flashdeal.riskguard.api.RiskGuardClient;
+import com.flashdeal.riskguard.api.RiskRequest;
 import com.flashdeal.rocketmq.SeckillProducer;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +42,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
     private final SeckillProducer seckillProducer;
     private final SeckillVoucherService seckillVoucherService;
     private final Environment environment;
+    private final RiskGuardClient riskGuardClient;
 
     @PostConstruct
     public void initSeckillStock() {
@@ -73,7 +77,20 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
 
     @Override
     public String seckillVoucher(Long voucherId) {
-        Long userId = UserHolder.getCurrentId();
+        UserHolder.Context ctx = UserHolder.get();
+        Long userId = ctx.userId();
+
+        // 0. 风控检查（在扣减库存之前，risk-guard 内部已做异常兜底，不会向外抛异常）
+        RiskDecision decision = riskGuardClient.check(RiskRequest.builder()
+                .businessType("SECKILL")
+                .userId(userId)
+                .clientIp(ctx.clientIp())
+                .userAgent(ctx.userAgent())
+                .build());
+        if (!decision.isPass()) {
+            log.warn("风控拦截: userId={}, voucherId={}, reason={}", userId, voucherId, decision.getReason());
+            throw new BusinessException("操作过于频繁，请稍后再试");
+        }
 
         String stockKey = RedisKeyConstant.getSeckillStockKey(voucherId);
         String orderKey = RedisKeyConstant.getSeckillOrderKey(voucherId);
@@ -119,7 +136,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
             throw e;
         }
     }
-    
+
     @Override
     @Transactional
     public void createSeckillOrder(Long userId, Long voucherId) {
@@ -156,7 +173,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
 
     @Override
     public String querySeckillStatus(Long voucherId) {
-        Long userId = UserHolder.getCurrentId();
+        Long userId = UserHolder.get().userId();
         String idempotencyKey = RedisKeyConstant.getConsumedKey(userId, voucherId);
 
         // 1. 先查 Redis

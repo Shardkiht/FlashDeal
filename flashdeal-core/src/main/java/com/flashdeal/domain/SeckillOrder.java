@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("tb_voucher_order")
+@TableName("voucher_order")
 public class SeckillOrder implements Serializable {
 
     @Serial
