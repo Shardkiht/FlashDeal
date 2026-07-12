@@ -7,6 +7,7 @@ import com.flashdeal.common.exception.LoginFailedException;
 import com.flashdeal.mapper.UserMapper;
 import com.flashdeal.service.api.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -19,6 +20,7 @@ import java.time.LocalDateTime;
 public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
+    private final StringRedisTemplate stringRedisTemplate;
 
     @Override
     public User login(UserLoginDTO userLoginDTO) {
@@ -37,6 +39,12 @@ public class UserServiceImpl implements UserService {
             userMapper.insert(user);
             // 重新查询以获取自增主键
             user = userMapper.getByPhone(phone);
+
+            // 注册成功，写入注册时间戳供风控使用，不设置 TTL（永久保留）
+            stringRedisTemplate.opsForValue().set(
+                    "risk:regtime:" + user.getId(),
+                    String.valueOf(System.currentTimeMillis())
+            );
         }
         return user;
     }

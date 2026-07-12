@@ -1,7 +1,6 @@
 package com.flashdeal.riskguard.config;
 
 import com.flashdeal.riskguard.api.RiskGuardClient;
-import com.flashdeal.riskguard.datasource.AccountInfoDao;
 import com.flashdeal.riskguard.model.DecisionTreeModel;
 import com.flashdeal.riskguard.InProcessRiskGuardClient;
 import com.flashdeal.riskguard.feature.FeatureExtractor;
@@ -45,9 +44,8 @@ public class RiskGuardAutoConfiguration {
     }
 
     @Bean
-    public SeckillFeatureExtractor seckillFeatureExtractor(
-            StringRedisTemplate redisTemplate, AccountInfoDao accountInfoDao) {
-        return new SeckillFeatureExtractor(redisTemplate, accountInfoDao);
+    public SeckillFeatureExtractor seckillFeatureExtractor(StringRedisTemplate redisTemplate) {
+        return new SeckillFeatureExtractor(redisTemplate);
     }
 
     @Bean

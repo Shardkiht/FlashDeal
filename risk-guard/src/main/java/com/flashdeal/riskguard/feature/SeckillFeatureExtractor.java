@@ -1,7 +1,6 @@
 package com.flashdeal.riskguard.feature;
 
 import com.flashdeal.riskguard.api.RiskRequest;
-import com.flashdeal.riskguard.datasource.AccountInfoDao;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -17,12 +16,15 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
 
     private static final String BUSINESS_TYPE = "SECKILL";
 
-    private final StringRedisTemplate redisTemplate;
-    private final AccountInfoDao accountInfoDao;
+    /** 账号注册时间戳 key 前缀，写入时机见 UserServiceImpl.login() */
+    private static final String REG_TIME_KEY_PREFIX = "risk:regtime:";
+    /** 历史订单数计数器 key 前缀，写入时机见 SeckillConsumer.onMessage() */
+    private static final String ORDER_COUNT_KEY_PREFIX = "risk:orderCount:";
 
-    public SeckillFeatureExtractor(StringRedisTemplate redisTemplate, AccountInfoDao accountInfoDao) {
+    private final StringRedisTemplate redisTemplate;
+
+    public SeckillFeatureExtractor(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
-        this.accountInfoDao = accountInfoDao;
     }
 
     @Override
@@ -36,7 +38,7 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
         String ip = request.getClientIp();
         String userAgent = request.getUserAgent();
 
-        // Redis Pipeline 批量操作
+        // Redis Pipeline 批量写入行为记录（qps计数、ip段集合、点击时间戳）
         String qpsKey = "risk:qps:" + ip;
         String ipSegKey = "risk:ipseg:" + getIpSegment(ip);
         String clicksKey = "risk:clicks:" + userId;
@@ -49,15 +51,12 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
                     byte[] userIdBytes = String.valueOf(userId).getBytes();
                     byte[] tsBytes = String.valueOf(System.currentTimeMillis()).getBytes();
 
-                    // qpsPerIp: INCR + EXPIRE
                     connection.incr(qpsBytes);
                     connection.expire(qpsBytes, 1);
 
-                    // ipSimilarity: SADD + EXPIRE
                     connection.sAdd(ipSegBytes, userIdBytes);
                     connection.expire(ipSegBytes, 300);
 
-                    // clickIntervalStdMs: LPUSH + LTRIM + EXPIRE
                     connection.listCommands().lPush(clicksBytes, tsBytes);
                     connection.listCommands().lTrim(clicksBytes, 0, 9);
                     connection.expire(clicksBytes, 60);
@@ -65,7 +64,6 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
                     return null;
                 });
 
-        // 单独读取需要的值
         String qpsStr = redisTemplate.opsForValue().get(qpsKey);
         double qpsPerIp = parseDouble(qpsStr, 0.0);
 
@@ -75,24 +73,40 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
         List<String> clickTimestamps = redisTemplate.opsForList().range(clicksKey, 0, -1);
         double clickIntervalStdMs = calcClickIntervalStd(clickTimestamps);
 
-        // MySQL 独立数据源查 accountAgeDays 和 orderHistory
-        int accountAgeDays = 365;
-        int orderHistory = 10;
-        try {
-            accountAgeDays = accountInfoDao.queryAccountAgeDays(userId);
-        } catch (Exception e) {
-            log.warn("查询 accountAgeDays 失败, userId={}, 使用默认值 365", userId, e);
-        }
-        try {
-            orderHistory = accountInfoDao.queryOrderCount(userId);
-        } catch (Exception e) {
-            log.warn("查询 orderHistory 失败, userId={}, 使用默认值 10", userId, e);
-        }
+        // accountAgeDays / orderHistory 改为读 Redis，不再查 DB
+        int accountAgeDays = getAccountAgeDays(userId);
+        int orderHistory = getOrderHistory(userId);
 
-        // isEmulator：从 User-Agent 判断
         int isEmulator = isEmulator(userAgent) ? 1 : 0;
 
         return new double[]{qpsPerIp, ipSimilarity, accountAgeDays, orderHistory, clickIntervalStdMs, isEmulator};
+    }
+
+    /** 从注册时间戳计算账号天数；查不到（老用户/迁移前数据）给默认值 365，倾向判定为正常老用户 */
+    private int getAccountAgeDays(Long userId) {
+        try {
+            String regTimeStr = redisTemplate.opsForValue().get(REG_TIME_KEY_PREFIX + userId);
+            if (regTimeStr == null) {
+                return 365;
+            }
+            long regTime = Long.parseLong(regTimeStr);
+            long days = (System.currentTimeMillis() - regTime) / (1000L * 60 * 60 * 24);
+            return (int) days;
+        } catch (Exception e) {
+            log.warn("读取 accountAgeDays 失败, userId={}, 使用默认值 365", userId, e);
+            return 365;
+        }
+    }
+
+    /** 从计数器读取历史订单数；查不到给默认值 0（新用户合理默认） */
+    private int getOrderHistory(Long userId) {
+        try {
+            String countStr = redisTemplate.opsForValue().get(ORDER_COUNT_KEY_PREFIX + userId);
+            return countStr == null ? 0 : Integer.parseInt(countStr);
+        } catch (Exception e) {
+            log.warn("读取 orderHistory 失败, userId={}, 使用默认值 0", userId, e);
+            return 0;
+        }
     }
 
     private String getIpSegment(String ip) {

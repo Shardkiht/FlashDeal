@@ -62,6 +62,9 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrderMessage> {
         try {
             seckillService.createSeckillOrder(userId, voucherId);
             stringRedisTemplate.opsForValue().set(idempotencyKey, SeckillConstant.STATUS_SUCCESS);
+
+            // 订单确认成功，历史订单数计数器 +1
+            stringRedisTemplate.opsForValue().increment("risk:orderCount:" + userId);
         } catch (BusinessException e) {
             // 确定性失败：不重试，直接终结
             log.error("业务异常, userId={}, voucherId={}", userId, voucherId, e);
