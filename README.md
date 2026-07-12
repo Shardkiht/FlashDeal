@@ -190,7 +190,7 @@ flowchart TD
     CHECK1 -->|是| CHECK2{用户已下单?<br/>sadd 判重}
     CHECK2 -->|是| R4[返回: 不能重复下单<br/>Lua 返回 2]
     CHECK2 -->|否| MARK[标记 PROCESSING<br/>写入三态幂等键]
-    MARK --> MSG[生成 MQ 消息<br/>{userId, voucherId}]
+    MARK --> MSG["生成 MQ 消息<br/>{userId, voucherId}"]
     MSG --> MQ{异步发送 RocketMQ}
     MQ -->|发送成功| OK[返回: 正在抢购中<br/>前端轮询状态]
     MQ -->|发送失败| ROLLBACK[执行 rollback.lua<br/>回滚库存+资格, 标记 FAILED]
@@ -217,7 +217,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    MSG([收到 MQ 订单消息<br/>{userId, voucherId}]) --> STATUS{读取幂等键状态}
+    MSG(["收到 MQ 订单消息<br/>{userId, voucherId}"]) --> STATUS{读取幂等键状态}
     STATUS -->|SUCCESS/FAILED| SKIP[已是终态, 跳过]
     STATUS -->|PROCESSING| CREATE[构建订单对象<br/>createSeckillOrder]
     STATUS -->|不存在| HANDLEFAIL[handleFail<br/>查库兜底]
