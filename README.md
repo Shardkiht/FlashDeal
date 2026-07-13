@@ -204,7 +204,6 @@ flowchart TD
     style R4 fill:#b71c1c,color:#fff
     style R5 fill:#b71c1c,color:#fff
     style LUA fill:#f9a825,color:#212121
-    style DECR fill:#1565c0,color:#fff
     style ROLLBACK fill:#e65100,color:#fff
 ```
 
@@ -250,83 +249,104 @@ flowchart TD
 ## 📁 项目结构
 
 ```
-FlashDeal
-├── pom.xml                                      # Maven 依赖与构建配置
-├── scripts/                                     # 压测脚本
-│   ├── seckill_test.sh                          # wrk 秒杀压测主脚本
-│   ├── single_user_test.sh                      # 单用户压测脚本
-│   ├── wrk_seckill_multi_user.lua               # wrk Lua 压测脚本
-│   ├── init_users.sh                            # 压测用户数据初始化脚本
-│   ├── test_data.txt                            # 测试数据
-│   └── tokens.txt                               # 用户 Token 文件
-├── src
-│   ├── main
-│   │   ├── java/com/flashdeal
-│   │   │   ├── FlashDealApplication.java        # 启动类
-│   │   │   ├── controller/                      # 控制层
-│   │   │   │   ├── UserController.java          # 用户登录
-│   │   │   │   ├── SeckillController.java       # 秒杀下单+状态查询入口
-│   │   │   │   └── TestController.java          # 测试: 添加秒杀券
-│   │   │   ├── service/                         # 服务层
-│   │   │   │   ├── api/                         # 接口定义
-│   │   │   │   │   ├── UserService.java
-│   │   │   │   │   ├── SeckillVoucherService.java
-│   │   │   │   │   └── SeckillService.java
-│   │   │   │   └── impl/                        # 接口实现
-│   │   │   │       ├── UserServiceImpl.java
-│   │   │   │       ├── SeckillVoucherServiceImpl.java   # 添加秒杀券+同步库存到Redis
-│   │   │   │       └── SeckillServiceImpl.java          # ⭐ 秒杀核心逻辑
-│   │   │   ├── task/                            # 定时任务
-│   │   │   │   └── SeckillReconciliationTask.java  # ⭐ 定时对账（PROCESSING 卡单修复）
-│   │   │   ├── rocketmq/                        # MQ 生产/消费
-│   │   │   │   ├── SeckillProducer.java         # 异步发送+失败回滚
-│   │   │   │   ├── SeckillConsumer.java         # 幂等消费+失败回滚
-│   │   │   │   └── SeckillFailLog.java          # 失败核查记录实体
-│   │   │   ├── mapper/                          # MyBatis Plus Mapper
-│   │   │   ├── domain/                          # 实体与 DTO/VO
-│   │   │   │   ├── User.java
-│   │   │   │   ├── SeckillVoucher.java
-│   │   │   │   ├── SeckillOrder.java
-│   │   │   │   ├── dto/
-│   │   │   │   │   ├── SeckillOrderMessage.java    # ⭐ MQ 消息体（userId + voucherId）
-│   │   │   │   │   └── UserLoginDTO.java
-│   │   │   │   ├── Result.java                  # 统一返回结果
-│   │   │   │   └── vo/UserLoginVO.java
-│   │   │   └── common/                          # 公共组件
-│   │   │       ├── config/                      # 配置类
-│   │   │       │   ├── RedisConfig.java
-│   │   │       │   ├── RedissonConfig.java      # Redis 密码从配置读取
-│   │   │       │   ├── MybatisPlusConfig.java
-│   │   │       │   └── WebMvcConfig.java        # 拦截器+消息转换器
-│   │   │       ├── constant/                    # 常量
-│   │   │       │   ├── RedisKeyConstant.java
-│   │   │       │   ├── MessageConstant.java
-│   │   │       │   ├── SeckillConstant.java
-│   │   │       │   ├── PathConstant.java
-│   │   │       │   └── JwtClaimsConstant.java
-│   │   │       ├── exception/                   # 异常处理
-│   │   │       │   ├── BaseException.java
-│   │   │       │   ├── BusinessException.java
-│   │   │       │   ├── LoginFailedException.java
-│   │   │       │   └── GlobalExceptionHandler.java
-│   │   │       ├── interceptor/                 # 拦截器
-│   │   │       │   ├── RateLimitInterceptor.java # 限流拦截器（最先执行）
-│   │   │       │   └── LoginInterceptor.java     # JWT 登录拦截器
-│   │   │       ├── utils/                       # 工具类
-│   │   │       │   ├── JwtUtil.java
-│   │   │       │   ├── SnowflakeIdGenerate.java # 雪花算法全局唯一 ID
-│   │   │       │   ├── LuaScriptUtil.java       # Lua 脚本加载器
-│   │   │       │   └── UserHolder.java          # ThreadLocal 用户上下文
-│   │   │       ├── properties/JwtProperties.java
-│   │   │       └── json/JacksonObjectMapper.java
-│   │   └── resources/
-│   │       ├── application.yaml                 # 应用配置
-│   │       ├── application-dev.yaml               # 开发环境配置
-│   │       ├── mapper/UserMapper.xml
-│   │       └── lua/
-│   │           ├── seckill.lua              # ⭐ 秒杀预扣 Lua 脚本
-│   │           └── rollback.lua             # ⭐ 失败回滚 Lua 脚本
-│   └── test/java/com/flashdeal/FlashDealApplicationTests.java
+FlashDeal                                          # 多模块 Maven 父项目
+├── pom.xml                                          # 父 POM（依赖管理）
+├── flashdeal-core/                                  # 秒杀核心模块
+│   ├── scripts/                                     # 压测脚本
+│   │   ├── seckill_test.sh                          # wrk 秒杀压测主脚本
+│   │   ├── single_user_test.sh                      # 单用户压测脚本
+│   │   ├── wrk_seckill_multi_user.lua               # wrk Lua 压测脚本
+│   │   ├── init_users.sh                            # 压测用户数据初始化脚本
+│   │   ├── test_data.txt                            # 测试数据
+│   │   └── tokens.txt                               # 用户 Token 文件
+│   ├── src/main/java/com/flashdeal
+│   │   ├── FlashDealApplication.java                # 启动类
+│   │   ├── controller/                              # 控制层
+│   │   │   ├── UserController.java                  # 用户登录
+│   │   │   ├── SeckillController.java               # 秒杀下单+状态查询入口
+│   │   │   └── TestController.java                  # 测试: 添加秒杀券
+│   │   ├── service/                                 # 服务层
+│   │   │   ├── api/                                 # 接口定义
+│   │   │   │   ├── UserService.java
+│   │   │   │   ├── SeckillVoucherService.java
+│   │   │   │   └── SeckillService.java
+│   │   │   └── impl/                                # 接口实现
+│   │   │       ├── UserServiceImpl.java
+│   │   │       ├── SeckillVoucherServiceImpl.java   # 添加秒杀券+同步库存到Redis
+│   │   │       └── SeckillServiceImpl.java          # ⭐ 秒杀核心逻辑
+│   │   ├── task/                                    # 定时任务
+│   │   │   └── SeckillReconciliationTask.java       # ⭐ 定时对账（PROCESSING 卡单修复）
+│   │   ├── rocketmq/                                # MQ 生产/消费
+│   │   │   ├── SeckillProducer.java                 # 异步发送+失败回滚
+│   │   │   ├── SeckillConsumer.java                 # 幂等消费+失败回滚
+│   │   │   └── SeckillFailLog.java                  # 失败核查记录实体
+│   │   ├── mapper/                                  # MyBatis Plus Mapper
+│   │   ├── domain/                                  # 实体与 DTO/VO
+│   │   │   ├── User.java
+│   │   │   ├── SeckillVoucher.java
+│   │   │   ├── SeckillOrder.java
+│   │   │   ├── dto/
+│   │   │   │   ├── SeckillOrderMessage.java         # ⭐ MQ 消息体（userId + voucherId）
+│   │   │   │   └── UserLoginDTO.java
+│   │   │   ├── Result.java                          # 统一返回结果
+│   │   │   └── vo/UserLoginVO.java
+│   │   └── common/                                  # 公共组件
+│   │       ├── config/                              # 配置类
+│   │       │   ├── RedisConfig.java
+│   │       │   ├── RedissonConfig.java              # Redis 密码从配置读取
+│   │       │   ├── MybatisPlusConfig.java
+│   │       │   └── WebMvcConfig.java                # 拦截器+消息转换器
+│   │       ├── constant/                            # 常量
+│   │       │   ├── RedisKeyConstant.java
+│   │       │   ├── MessageConstant.java
+│   │       │   ├── SeckillConstant.java
+│   │       │   ├── PathConstant.java
+│   │       │   └── JwtClaimsConstant.java
+│   │       ├── exception/                           # 异常处理
+│   │       │   ├── BaseException.java
+│   │       │   ├── BusinessException.java
+│   │       │   ├── LoginFailedException.java
+│   │       │   └── GlobalExceptionHandler.java
+│   │       ├── interceptor/                         # 拦截器
+│   │       │   ├── RateLimitInterceptor.java        # 限流拦截器（最先执行）
+│   │       │   └── LoginInterceptor.java            # JWT 登录拦截器
+│   │       ├── utils/                               # 工具类
+│   │       │   ├── JwtUtil.java
+│   │       │   ├── SnowflakeIdGenerate.java         # 雪花算法全局唯一 ID
+│   │       │   ├── LuaScriptUtil.java               # Lua 脚本加载器
+│   │       │   └── UserHolder.java                  # ThreadLocal 用户上下文
+│   │       ├── properties/JwtProperties.java
+│   │       └── json/JacksonObjectMapper.java
+│   └── src/main/resources/
+│       ├── application.yaml                         # 应用配置
+│       ├── application-dev.yaml                     # 开发环境配置
+│       ├── mapper/UserMapper.xml
+│       └── lua/
+│           ├── seckill.lua                          # ⭐ 秒杀预扣 Lua 脚本
+│           └── rollback.lua                         # ⭐ 失败回滚 Lua 脚本
+└── risk-guard/                                      # 风控模块
+    ├── src/main/java/com/flashdeal/riskguard
+    │   ├── api/                                     # 接口定义
+    │   │   └── RiskGuardClient.java                 # 风控客户端接口
+    │   ├── dto/                                     # 数据传输对象
+    │   │   ├── RiskRequest.java                     # 风控请求
+    │   │   └── RiskDecision.java                    # 风控决策结果
+    │   ├── feature/                                 # 特征提取
+    │   │   ├── FeatureExtractor.java                # 特征提取接口
+    │   │   └── impl/
+    │   │       └── SeckillFeatureExtractor.java     # ⭐ 秒杀特征提取（Redis Pipeline）
+    │   ├── model/                                   # 风控模型
+    │   │   ├── RiskModel.java                       # 模型接口
+    │   │   └── impl/
+    │   │       └── DecisionTreeModel.java           # 决策树模型（Smile）
+    │   ├── impl/
+    │   │   └── InProcessRiskGuardClient.java        # 进程内风控客户端实现
+    │   ├── config/
+    │   │   └── RiskGuardAutoConfiguration.java      # Spring 自动装配
+    │   └── train/                                   # 离线训练
+    │       ├── BehaviorSimulator.java               # 行为模拟器（生成训练数据）
+    │       └── ModelTrainer.java                    # 模型训练器
+    └── pom.xml
 ```
 
 ---
@@ -397,7 +417,7 @@ CREATE TABLE `voucher_order`
 
 ### 2. 修改配置
 
-编辑 `src/main/resources/application-dev.yaml`，按实际环境调整 MySQL、Redis、RocketMQ 地址：
+编辑 `flashdeal-core/src/main/resources/application-dev.yaml`，按实际环境调整 MySQL、Redis、RocketMQ 地址：
 
 ```yaml
 spring:
@@ -437,7 +457,7 @@ nohup sh bin/mqbroker -n localhost:9876 &
 mvn clean package -DskipTests
 
 # 运行
-java -jar target/FlashDeal-1.0.0.jar
+java -jar flashdeal-core/target/FlashDeal-1.0.0.jar
 
 # 或开发模式
 mvn spring-boot:run
@@ -608,7 +628,7 @@ redis.call('decr', stockKey)  -- 扣减库存
 return 0                      -- 成功
 ```
 
-**rollback.lua — 原子回滚（5 个参数）**
+**rollback.lua — 原子回滚（6 个参数）**
 
 ```lua
 local stockKey = KEYS[1]      -- 库存 key
@@ -628,7 +648,7 @@ if mode == "DELETE" then
     return 1
 end
 
--- FAIL 模式：标记失败并设置过期时间（86400秒 = 1天）
+-- FAIL 模式：标记失败并设置过期时间（3600秒 = 1小时）
 local ttlSeconds = ARGV[3]
 redis.call('set', idempotencyKey, "FAILED", "EX", tonumber(ttlSeconds))
 return 1
@@ -710,11 +730,11 @@ MQ 重试耗尽后，订单可能卡在 `PROCESSING` 状态（消费者异常、
 
 ## 🧪 压测脚本
 
-项目内置 `wrk` 压测脚本，位于 `scripts/` 目录：
+项目内置 `wrk` 压测脚本，位于 `flashdeal-core/scripts/` 目录：
 
 ```bash
 # 进入脚本目录
-cd scripts/
+cd flashdeal-core/scripts/
 
 # 给脚本添加执行权限
 chmod +x seckill_test.sh single_user_test.sh
@@ -767,6 +787,7 @@ chmod +x seckill_test.sh single_user_test.sh
 - [x] 失败回滚与 Lua 原子恢复
 - [x] 接口压测脚本（wrk）
 - [x] 定时对账任务（PROCESSING 卡单兜底修复）
+- [x] 风控模块（特征提取 + 决策树模型 + 自动装配）
 - [ ] Docker Compose 一键部署
 
 ---

@@ -1,4 +1,4 @@
-package com.flashdeal.riskguard.api;
+package com.flashdeal.riskguard.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

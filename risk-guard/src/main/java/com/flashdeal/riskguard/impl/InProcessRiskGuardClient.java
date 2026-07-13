@@ -1,10 +1,10 @@
-package com.flashdeal.riskguard;
+package com.flashdeal.riskguard.impl;
 
-import com.flashdeal.riskguard.api.RiskDecision;
+import com.flashdeal.riskguard.dto.RiskDecision;
 import com.flashdeal.riskguard.api.RiskGuardClient;
-import com.flashdeal.riskguard.api.RiskRequest;
+import com.flashdeal.riskguard.dto.RiskRequest;
 import com.flashdeal.riskguard.feature.FeatureExtractor;
-import com.flashdeal.riskguard.model.DecisionTreeModel;
+import com.flashdeal.riskguard.model.impl.DecisionTreeModel;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
@@ -29,7 +29,7 @@ public class InProcessRiskGuardClient implements RiskGuardClient {
                 .collect(Collectors.toMap(FeatureExtractor::supportBusinessType, Function.identity()));
 
         if (!modelAvailable) {
-            log.error("DecisionTreeModel 加载失败，风控将降级放行");
+            log.error("DecisionTreeModel 加载失败，风控降级放行");
         }
     }
 

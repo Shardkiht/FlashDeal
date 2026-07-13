@@ -1,5 +1,6 @@
-package com.flashdeal.riskguard.model;
+package com.flashdeal.riskguard.model.impl;
 
+import com.flashdeal.riskguard.model.RiskModel;
 import smile.base.cart.SplitRule;
 import smile.classification.DecisionTree;
 import smile.data.DataFrame;
@@ -36,7 +37,7 @@ public class DecisionTreeModel implements RiskModel {
      */
     public void train(double[][] x, int[] y, int maxDepth, int minSamplesLeaf) {
         // 构建混合类型 DataFrame：DoubleVector 特征列 + IntVector label 列
-        BaseVector[] vectors = new BaseVector[FEATURE_NAMES.length + 1];
+        BaseVector<?, ?, ?>[] vectors = new BaseVector[FEATURE_NAMES.length + 1];
         for (int col = 0; col < FEATURE_NAMES.length; col++) {
             double[] colData = new double[x.length];
             for (int row = 0; row < x.length; row++) {

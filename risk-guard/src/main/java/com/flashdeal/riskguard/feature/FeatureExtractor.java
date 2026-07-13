@@ -1,6 +1,6 @@
 package com.flashdeal.riskguard.feature;
 
-import com.flashdeal.riskguard.api.RiskRequest;
+import com.flashdeal.riskguard.dto.RiskRequest;
 
 /**
  * 特征提取顶层接口，按 businessType 分发

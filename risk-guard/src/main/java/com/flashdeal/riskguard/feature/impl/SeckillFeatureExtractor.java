@@ -1,12 +1,13 @@
-package com.flashdeal.riskguard.feature;
+package com.flashdeal.riskguard.feature.impl;
 
-import com.flashdeal.riskguard.api.RiskRequest;
+import com.flashdeal.riskguard.dto.RiskRequest;
+import com.flashdeal.riskguard.feature.FeatureExtractor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Objects;
 
 /**
  * 秒杀场景特征提取实现
@@ -16,7 +17,7 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
 
     private static final String BUSINESS_TYPE = "SECKILL";
 
-    /** 账号注册时间戳 key 前缀，写入时机见 UserServiceImpl.login() */
+    /** 账号注册时间戳 key 前缀，写入时机见 UserServiceImpl 自动注册分支 */
     private static final String REG_TIME_KEY_PREFIX = "risk:regtime:";
     /** 历史订单数计数器 key 前缀，写入时机见 SeckillConsumer.onMessage() */
     private static final String ORDER_COUNT_KEY_PREFIX = "risk:orderCount:";
@@ -45,11 +46,11 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
 
         redisTemplate.executePipelined(
                 (org.springframework.data.redis.core.RedisCallback<Object>) connection -> {
-                    byte[] qpsBytes = redisTemplate.getStringSerializer().serialize(qpsKey);
-                    byte[] ipSegBytes = redisTemplate.getStringSerializer().serialize(ipSegKey);
-                    byte[] clicksBytes = redisTemplate.getStringSerializer().serialize(clicksKey);
+                    byte[] qpsBytes = rawKey(qpsKey);
+                    byte[] ipSegBytes = rawKey(ipSegKey);
+                    byte[] clicksBytes = rawKey(clicksKey);
                     byte[] userIdBytes = String.valueOf(userId).getBytes();
-                    byte[] tsBytes = String.valueOf(System.currentTimeMillis()).getBytes();
+                    byte[] tsBytes = nowBytes();
 
                     connection.incr(qpsBytes);
                     connection.expire(qpsBytes, 1);
@@ -65,7 +66,7 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
                 });
 
         String qpsStr = redisTemplate.opsForValue().get(qpsKey);
-        double qpsPerIp = parseDouble(qpsStr, 0.0);
+        double qpsPerIp = parseDouble(qpsStr);
 
         Long ipSegCard = redisTemplate.opsForSet().size(ipSegKey);
         double ipSimilarity = Math.min(1.0, (ipSegCard == null ? 1L : ipSegCard) / 10.0);
@@ -109,25 +110,33 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
         }
     }
 
+    private byte[] rawKey(String key) {
+        return Objects.requireNonNull(redisTemplate.getStringSerializer()).serialize(key);
+    }
+
+    private byte[] nowBytes() {
+        return String.valueOf(System.currentTimeMillis()).getBytes();
+    }
+
     private String getIpSegment(String ip) {
         if (ip == null) return "unknown";
         int lastDot = ip.lastIndexOf('.');
         return lastDot > 0 ? ip.substring(0, lastDot) : ip;
     }
 
-    private double parseDouble(Object val, double defaultVal) {
-        if (val == null) return defaultVal;
+    private double parseDouble(Object val) {
+        if (val == null) return 0.0;
         try {
             return Double.parseDouble(val.toString());
         } catch (NumberFormatException e) {
-            return defaultVal;
+            return 0.0;
         }
     }
 
     private double calcClickIntervalStd(List<String> timestamps) {
         if (timestamps == null || timestamps.size() < 2) return 1000.0;
         try {
-            List<Long> tsList = timestamps.stream().map(Long::parseLong).sorted().collect(Collectors.toList());
+            List<Long> tsList = timestamps.stream().map(Long::parseLong).sorted().toList();
             List<Long> diffs = new ArrayList<>();
             for (int i = 1; i < tsList.size(); i++) {
                 diffs.add(tsList.get(i) - tsList.get(i - 1));
@@ -141,7 +150,7 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
     }
 
     private boolean isEmulator(String userAgent) {
-        if (userAgent == null || userAgent.isEmpty()) return true;
+        if (userAgent == null || userAgent.isEmpty()) return false;
         String lower = userAgent.toLowerCase();
         return lower.contains("headlesschrome") || lower.contains("phantomjs")
                 || lower.contains("selenium") || lower.contains("webdriver");

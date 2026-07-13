@@ -1,10 +1,10 @@
 package com.flashdeal.riskguard.config;
 
 import com.flashdeal.riskguard.api.RiskGuardClient;
-import com.flashdeal.riskguard.model.DecisionTreeModel;
-import com.flashdeal.riskguard.InProcessRiskGuardClient;
+import com.flashdeal.riskguard.model.impl.DecisionTreeModel;
+import com.flashdeal.riskguard.impl.InProcessRiskGuardClient;
 import com.flashdeal.riskguard.feature.FeatureExtractor;
-import com.flashdeal.riskguard.feature.SeckillFeatureExtractor;
+import com.flashdeal.riskguard.feature.impl.SeckillFeatureExtractor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

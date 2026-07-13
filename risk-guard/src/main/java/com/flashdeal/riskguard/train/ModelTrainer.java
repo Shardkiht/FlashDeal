@@ -1,10 +1,11 @@
 package com.flashdeal.riskguard.train;
 
-import com.flashdeal.riskguard.model.DecisionTreeModel;
+import com.flashdeal.riskguard.model.impl.DecisionTreeModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 
 /**
  * 训练入口：切分数据集、调用 fit、评估、落盘 model 文件
@@ -31,7 +32,6 @@ public class ModelTrainer {
         int[] testY = new int[testSize];
 
         // 按标签分组索引
-        int normalIdx = 0, botIdx = 0;
         int trainIdx = 0, testIdx = 0;
         int normalCount = 0, botCount = 0;
 
@@ -77,7 +77,7 @@ public class ModelTrainer {
 
             if (actualBot && predictedBot) truePositive++;
             else if (!actualBot && predictedBot) falsePositive++;
-            else if (!actualBot && !predictedBot) trueNegative++;
+            else if (!actualBot) trueNegative++;
             else falseNegative++;
         }
 
@@ -94,7 +94,9 @@ public class ModelTrainer {
         // 5. 落盘
         String outputPath = "risk-guard/src/main/resources/model.bin";
         File outFile = new File(outputPath);
-        outFile.getParentFile().mkdirs();
+        if (!outFile.getParentFile().exists() && !outFile.getParentFile().mkdirs()) {
+            throw new IOException("无法创建目录: " + outFile.getParentFile().getAbsolutePath());
+        }
         model.save(outputPath);
         log.info("模型已保存到 {}", outputPath);
     }
