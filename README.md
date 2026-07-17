@@ -21,10 +21,9 @@
 
 ## 📖 项目简介
 
-**FlashDeal** 是一个面向高并发场景的秒杀系统，核心解决电商促销、限量抢购等业务中常见的三大难题：**超卖**、**重复下单**、*
-*流量洪峰**。系统通过 Redis Lua 脚本实现原子性库存预扣减，借助 RocketMQ 完成订单异步落库，并使用 Redisson 限流器保障系统稳定性。
+**FlashDeal** 是一个面向高并发场景的秒杀系统，核心解决电商促销、限量抢购等业务中常见的三大难题：**超卖**、**重复下单**、**流量洪峰**。系统通过 Redis Lua 脚本实现原子性库存预扣减，借助 RocketMQ 完成订单异步落库，使用 Redisson 限流器保障系统稳定性，并内置决策树风控引擎识别羊毛党与可疑请求。
 
-整体设计遵循"**前置拦截 → 原子预扣 → 异步落库 → 失败回滚**"
+整体设计遵循"**限流 → 风控 → 原子预扣 → 异步落库 → 失败回滚**"
 的分层防御理念，单机可支撑每秒数千次秒杀请求，在保证业务正确性的同时最大化吞吐能力。项目代码结构清晰、注释完善，既可作为生产级秒杀方案的参考实现，也适合作为学习高并发架构设计的实战案例。
 
 ---
@@ -80,6 +79,7 @@
 | 🔁 **三态幂等**    | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                           |
 | 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0` |
 | 🔄 **失败回滚**    | Redis Lua 原子回滚 + FAIL 标记          | MQ 发送失败 / 消费业务异常时原子回滚库存并标记 FAILED，用户可立即重试          |
+| 🔐 **风控引擎**    | risk-guard 决策树                    | 进程内推理，特征提取 + 决策树模型，拦截羊毛党与可疑请求            |
 | 🔍 **定时对账**    | `@Scheduled` + Redis SCAN         | 每 5 分钟扫描 PROCESSING 卡单，对比 DB 修复不一致数据，兜底 MQ 重试耗尽场景  |
 
 ---
@@ -96,14 +96,14 @@
 | **限流**     | Redisson        | 3.27.0      |
 | **消息队列**   | Apache RocketMQ | 4.9.7       |
 | **认证授权**   | JWT             | 0.12.6      |
+| **风控引擎**   | risk-guard (决策树) | 1.0.0       |
 | **工具库**    | Hutool / Lombok | 5.8.34 / -- |
 
 ---
 
 ## 🏗️ 系统架构
 
-下图展示了 FlashDeal 的整体架构与各组件协作关系。客户端请求经过限流器与登录拦截器后进入业务层，业务层通过 Redis 完成原子预扣，再通过
-RocketMQ 异步落库，最终由消费者在幂等校验与 DB 乐观锁保护下写入 MySQL。
+下图展示了 FlashDeal 的整体架构与各组件协作关系。客户端请求经过限流器与登录拦截器后进入业务层，业务层先调用 risk-guard 风控引擎进行风险评估，通过后再经 Redis Lua 完成原子预扣，最后通过 RocketMQ 异步落库，最终由消费者在幂等校验与 DB 乐观锁保护下写入 MySQL。
 
 ```mermaid
 flowchart TB
@@ -118,6 +118,7 @@ flowchart TB
 
     subgraph App["应用层 Spring Boot"]
         CTRL["SeckillController"]
+        RISK["RiskGuardClient<br/>决策树风控"]
         SVC["SeckillServiceImpl"]
         IDG["SnowflakeIdGenerate<br/>全局唯一 ID"]
         PROD["SeckillProducer"]
@@ -146,7 +147,9 @@ flowchart TB
     RL -->|超限| REJ["拒绝: RATE_LIMIT"]
     LI -->|Token 校验通过| CTRL
     LI -->|无 Token/失效| UNAUTH["200: 用户未登录"]
-    CTRL --> SVC
+    CTRL --> RISK
+    RISK -->|通过| SVC
+    RISK -->|拦截| RISKREJ["拒绝: RISK_REJECT"]
     SVC --> IDG
 
     SVC -->|执行| LUA
@@ -168,14 +171,15 @@ flowchart TB
     style MYSQL fill:#c62828,color:#fff
     style REJ fill:#b71c1c,color:#fff
     style UNAUTH fill:#b71c1c,color:#fff
+    style RISKREJ fill:#b71c1c,color:#fff
+    style RISK fill:#6a1b9a,color:#fff
 ```
 
 ---
 
 ## ⚡ 秒杀核心流程
 
-下图展示了从用户点击"立即抢购"到订单创建完成的完整链路，包含限流、鉴权、Lua 原子预扣、MQ
-异步发送、失败回滚等关键环节。这是整个系统最核心的流程，所有的高并发设计都集中体现在这里。
+下图展示了从用户点击"立即抢购"到订单创建完成的完整链路，包含限流、鉴权、风控检查、Lua 原子预扣、MQ 异步发送、失败回滚等关键环节。这是整个系统最核心的流程，所有的高并发设计都集中体现在这里。
 
 ```mermaid
 flowchart TD
@@ -183,7 +187,9 @@ flowchart TD
     LIMIT -->|被限流| R1[返回: RATE_LIMIT]
     LIMIT -->|放行| AUTH{JWT 校验}
     AUTH -->|未登录| R2[返回: 用户未登录]
-    AUTH -->|已登录| GEN[生成全局唯一订单 ID<br/>Snowflake]
+    AUTH -->|已登录| RISK{风控检查<br/>risk-guard}
+    RISK -->|拦截| RISKREJ[返回: 操作过于频繁]
+    RISK -->|通过| GEN[生成全局唯一订单 ID<br/>Snowflake]
 
     GEN --> LUA[执行 Lua 脚本<br/>原子操作]
     LUA --> CHECK1{库存 > 0?}
@@ -204,7 +210,9 @@ flowchart TD
     style R3 fill:#b71c1c,color:#fff
     style R4 fill:#b71c1c,color:#fff
     style R5 fill:#b71c1c,color:#fff
+    style RISKREJ fill:#b71c1c,color:#fff
     style LUA fill:#f9a825,color:#212121
+    style RISK fill:#6a1b9a,color:#fff
     style ROLLBACK fill:#e65100,color:#fff
 ```
 
@@ -379,8 +387,7 @@ CREATE TABLE `user`
     `id_number`   VARCHAR(18)  DEFAULT NULL,
     `avatar`      VARCHAR(500) DEFAULT NULL,
     `create_time` DATETIME     DEFAULT NULL,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_phone` (`phone`)
+    PRIMARY KEY (`id`)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
 
@@ -691,8 +698,9 @@ return 1
 ### 4. 分层防御体系
 
 - **第一层（入口限流）**：Redisson `RRateLimiter` 全局限流 3000 req/s，超出直接返回 HTTP 429 + "RATE_LIMIT"
-- **第二层（快速失败）**：Redis Lua 脚本原子预扣，瞬间拒绝无库存/重复请求，不进入后续流程
-- **第三层（数据兜底）**：DB 乐观锁 `WHERE stock > 0` + 唯一索引 `uk_user_voucher` 确保最终数据一致性
+- **第二层（风控拦截）**：risk-guard 决策树模型，进程内推理识别羊毛党与可疑请求，拦截后直接拒绝
+- **第三层（快速失败）**：Redis Lua 脚本原子预扣，瞬间拒绝无库存/重复请求，不进入后续流程
+- **第四层（数据兜底）**：DB 乐观锁 `WHERE stock > 0` + 唯一索引 `uk_user_voucher` 确保最终数据一致性
 
 ### 5. MQ 消费与容错机制
 
