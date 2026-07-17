@@ -4,6 +4,7 @@ import com.flashdeal.riskguard.dto.RiskRequest;
 import com.flashdeal.riskguard.feature.FeatureExtractor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +24,10 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
     private static final String ORDER_COUNT_KEY_PREFIX = "risk:orderCount:";
 
     private final StringRedisTemplate redisTemplate;
+
+    /** Lua 脚本设置 key 过期时间（秒），绕过 DefaultedRedisConnection 的 expire/pExpire 循环代理 bug */
+    private static final DefaultRedisScript<String> EXPIRE_SCRIPT = new DefaultRedisScript<>(
+            "return redis.call('EXPIRE', KEYS[1], ARGV[1])", String.class);
 
     public SeckillFeatureExtractor(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
@@ -53,17 +58,19 @@ public class SeckillFeatureExtractor implements FeatureExtractor {
                     byte[] tsBytes = nowBytes();
 
                     connection.incr(qpsBytes);
-                    connection.expire(qpsBytes, 1);
 
                     connection.sAdd(ipSegBytes, userIdBytes);
-                    connection.expire(ipSegBytes, 300);
 
                     connection.listCommands().lPush(clicksBytes, tsBytes);
                     connection.listCommands().lTrim(clicksBytes, 0, 9);
-                    connection.expire(clicksBytes, 60);
 
                     return null;
                 });
+
+        // 用 Lua EVAL 设置过期时间，完全绕过 DefaultedRedisConnection 的 expire/pExpire 循环代理
+        redisTemplate.execute(EXPIRE_SCRIPT, List.of(qpsKey), String.valueOf(1));
+        redisTemplate.execute(EXPIRE_SCRIPT, List.of(ipSegKey), String.valueOf(300));
+        redisTemplate.execute(EXPIRE_SCRIPT, List.of(clicksKey), String.valueOf(60));
 
         String qpsStr = redisTemplate.opsForValue().get(qpsKey);
         double qpsPerIp = parseDouble(qpsStr);

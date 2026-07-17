@@ -31,17 +31,18 @@
 
 ## 📊 压测数据
 
-### 最新压测结果（5000用户 / 200连接 / 8线程 / 30s）
+### 最新压测结果（5000用户 / 100连接 / 4线程 / 30s）
 
 ```
 ========================================
-总请求: 1,209,772 | QPS: 40,200
+总请求: 844,121 | QPS: 28,055
 --- 业务分类 ---
-限流拦截: 1,108,670 (92.43%)  ← Redisson 全局限流器拦截
-库存不足:    90,300 (7.53%)   ← Lua 脚本原子预扣拒绝
-重复下单:       453 (0.04%)   ← Lua sadd 判重拦截
-成功/处理中:    100 (0.01%)   ← 最终订单创建成功数
-延迟: avg=7.03ms p50=2.44ms p99=27.31ms
+限流拦截: 753,718 (89.29%)  ← Redisson 全局限流器拦截
+风控拦截:  86,036 (10.19%)  ← 决策树模型识别可疑请求
+库存不足:   4,079 (0.48%)   ← Lua 脚本原子预扣拒绝
+重复下单:     188 (0.02%)   ← Lua sadd 判重拦截
+成功/处理中:  100 (0.01%)   ← 最终订单创建成功数
+延迟: avg=4.98ms p50=1.95ms p99=18.48ms
 ========================================
 ```
 
@@ -50,18 +51,18 @@
 | 验证项      | 预期            | 实际                | 状态 |
 |:---------|:--------------|:------------------|:---|
 | **超卖防护** | 0 超卖          | ✅ 0 超卖            | 通过 |
-| **重复下单** | 0 重复          | ✅ 453次被拦截         | 通过 |
+| **重复下单** | 0 重复          | ✅ 188次被拦截         | 通过 |
 | **库存精准** | 100库存→100订单   | ✅ 100 订单成功        | 通过 |
 | **限流效果** | 3000 req/s 放行 | ✅ 约 3000 req/s 放行 | 通过 |
-| **响应时间** | p99 < 50ms    | ✅ p99 = 27.31ms   | 优秀 |
+| **风控拦截** | 拦截可疑请求       | ✅ 10.19% 被拦截     | 通过 |
+| **响应时间** | p99 < 50ms    | ✅ p99 = 18.48ms   | 优秀 |
 
 ### 性能分析
 
-- **QPS ~40,200**：wrk 压测工具实测，8 线程 200 连接并发
-- **限流拦截率 92.43%**：Redisson `RRateLimiter` 精准拦截超限请求，保护后端
-- **平均延迟 7.03ms**：Redis 预扣 + MQ 异步发送，性能优异
-- **冷启动特征**：单用户首次压测 p99~88ms（JVM 类加载、JIT 编译），后续趋于稳定
-- **分层防御生效**：限流层拦截 92% → Lua 层拦截 7.5% → DB 层兜底 0.04%
+- **QPS ~28,055**：wrk 压测工具实测，4 线程 100 连接并发
+- **四层防御生效**：限流层 89.29% → 风控层 10.19% → Lua 层 0.48% → DB 层兜底
+- **平均延迟 4.98ms**：Redis 预扣 + MQ 异步发送，性能优异
+- **风控模块**：决策树模型识别羊毛党与模拟器，拦截 10.19% 可疑请求
 
 ---
 
@@ -69,7 +70,7 @@
 
 | 特性             | 实现方式                              | 说明                                                 |
 |:---------------|:----------------------------------|:---------------------------------------------------|
-| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，压测中拦截 92.43% 请求，超出直接返回 HTTP 429    |
+| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，超出直接返回 HTTP 429    |
 | 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时，从 `authentication` header 提取  |
 | ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态                     |
 | 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式           |
@@ -137,7 +138,7 @@ flowchart TB
     end
 
     subgraph DB["持久层"]
-        MYSQL[("MySQL<br/>tb_seckill_voucher<br/>voucher_order<br/>user")]
+        MYSQL[("MySQL<br/>seckill_voucher<br/>voucher_order<br/>user")]
     end
 
     U -->|HTTP 请求| RL
@@ -252,13 +253,12 @@ flowchart TD
 FlashDeal                                          # 多模块 Maven 父项目
 ├── pom.xml                                          # 父 POM（依赖管理）
 ├── flashdeal-core/                                  # 秒杀核心模块
-│   ├── scripts/                                     # 压测脚本
-│   │   ├── seckill_test.sh                          # wrk 秒杀压测主脚本
-│   │   ├── single_user_test.sh                      # 单用户压测脚本
-│   │   ├── wrk_seckill_multi_user.lua               # wrk Lua 压测脚本
-│   │   ├── init_users.sh                            # 压测用户数据初始化脚本
-│   │   ├── test_data.txt                            # 测试数据
-│   │   └── tokens.txt                               # 用户 Token 文件
+│   ├── scripts/                                     # 压测脚本与报告
+│   │   ├── register_test_users.sh                   # 批量注册压测用户
+│   │   ├── diversify_user_profiles.sh               # 用户画像区分（正常/羊毛党）
+│   │   ├── wrk_seckill_risk_test.lua                # wrk 风控压测 Lua 脚本
+│   │   ├── risk_tokens.txt                          # 压测用户 Token 文件
+│   │   └── benchmark-results.txt                    # 压测结果报告
 │   ├── src/main/java/com/flashdeal
 │   │   ├── FlashDealApplication.java                # 启动类
 │   │   ├── controller/                              # 控制层
@@ -346,6 +346,8 @@ FlashDeal                                          # 多模块 Maven 父项目
     │   └── train/                                   # 离线训练
     │       ├── BehaviorSimulator.java               # 行为模拟器（生成训练数据）
     │       └── ModelTrainer.java                    # 模型训练器
+    ├── src/main/resources/
+    │   └── model.bin                                  # 训练好的决策树模型
     └── pom.xml
 ```
 
@@ -369,46 +371,45 @@ FlashDeal                                          # 多模块 Maven 父项目
 -- 用户表
 CREATE TABLE `user`
 (
-    `id`          BIGINT NOT NULL AUTO_INCREMENT,
-    `openid`      VARCHAR(64)  DEFAULT NULL,
-    `name`        VARCHAR(64)  DEFAULT NULL,
-    `phone`       VARCHAR(32)  DEFAULT NULL,
-    `sex`         VARCHAR(4)   DEFAULT NULL,
-    `id_number`   VARCHAR(32)  DEFAULT NULL,
-    `avatar`      VARCHAR(255) DEFAULT NULL,
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+    `openid`      VARCHAR(45)  DEFAULT NULL,
+    `name`        VARCHAR(32)  DEFAULT NULL,
+    `phone`       VARCHAR(11)  DEFAULT NULL,
+    `sex`         VARCHAR(2)   DEFAULT NULL,
+    `id_number`   VARCHAR(18)  DEFAULT NULL,
+    `avatar`      VARCHAR(500) DEFAULT NULL,
     `create_time` DATETIME     DEFAULT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_phone` (`phone`)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
 
-
 -- 秒杀优惠券表
-CREATE TABLE `tb_seckill_voucher`
+CREATE TABLE `seckill_voucher`
 (
-    `id`          BIGINT NOT NULL,
-    `stock`       INT    NOT NULL,
-    `create_time` DATETIME DEFAULT NULL,
-    `begin_time`  DATETIME DEFAULT NULL,
-    `end_time`    DATETIME DEFAULT NULL,
-    `update_time` DATETIME DEFAULT NULL,
-    PRIMARY KEY (`id`)
+    `id`            BIGINT UNSIGNED DEFAULT NULL,
+    `stock`         INT             DEFAULT NULL,
+    `create_time`   TIMESTAMP       DEFAULT NULL,
+    `begin_time`    TIMESTAMP       DEFAULT NULL,
+    `end_time`      TIMESTAMP       DEFAULT NULL,
+    `update_time`   TIMESTAMP       DEFAULT NULL,
+    `initial_stock` INT             DEFAULT NULL
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
 
 -- 优惠券订单表
 CREATE TABLE `voucher_order`
 (
-    `id`          BIGINT NOT NULL,
-    `user_id`     BIGINT NOT NULL,
-    `voucher_id`  BIGINT NOT NULL,
-    `pay_type`    INT      DEFAULT NULL,
-    `status`      INT      DEFAULT NULL,
-    `create_time` DATETIME DEFAULT NULL,
-    `pay_time`    DATETIME DEFAULT NULL,
-    `use_time`    DATETIME DEFAULT NULL,
-    `refund_time` DATETIME DEFAULT NULL,
-    `update_time` DATETIME DEFAULT NULL,
+    `id`          BIGINT           DEFAULT NULL,
+    `user_id`     BIGINT UNSIGNED  DEFAULT NULL,
+    `voucher_id`  BIGINT UNSIGNED  DEFAULT NULL,
+    `pay_type`    TINYINT UNSIGNED DEFAULT NULL,
+    `status`      TINYINT UNSIGNED DEFAULT NULL,
+    `create_time` TIMESTAMP        DEFAULT NULL,
+    `pay_time`    TIMESTAMP        DEFAULT NULL,
+    `use_time`    TIMESTAMP        DEFAULT NULL,
+    `refund_time` TIMESTAMP        DEFAULT NULL,
+    `update_time` TIMESTAMP        DEFAULT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_user_voucher` (`user_id`, `voucher_id`)
 ) ENGINE = InnoDB
@@ -422,7 +423,7 @@ CREATE TABLE `voucher_order`
 ```yaml
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/flashdeal?sslMode=DISABLED&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://localhost:3306/flash_deal?sslMode=DISABLED&serverTimezone=Asia/Shanghai
     username: root
     password: your_password
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -730,49 +731,50 @@ MQ 重试耗尽后，订单可能卡在 `PROCESSING` 状态（消费者异常、
 
 ## 🧪 压测脚本
 
-项目内置 `wrk` 压测脚本，位于 `flashdeal-core/scripts/` 目录：
+项目内置风控压测脚本，位于 `flashdeal-core/scripts/` 目录：
 
 ```bash
 # 进入脚本目录
 cd flashdeal-core/scripts/
 
-# 给脚本添加执行权限
-chmod +x seckill_test.sh single_user_test.sh
+# 1. 批量注册压测用户
+./register_test_users.sh
 
-# 执行多用户秒杀压测（需先准备 tokens.txt）
-./seckill_test.sh
+# 2. 区分用户画像（正常用户 / 羊毛党）
+REDIS_PASS=865943 ./diversify_user_profiles.sh
+
+# 3. 执行风控压测
+wrk -t4 -c100 -d30s -s wrk_seckill_risk_test.lua http://localhost:8080
 ```
 
-压测脚本会自动：
+压测流程：
 
-1. 从 `tokens.txt` 读取 N 个用户 Token（格式：`userId|phone|token`）
-2. 使用 `wrk` 多线程并发请求秒杀接口（8 线程 / 200 连接）
-3. 自动分类统计：限流拦截、库存不足、重复下单、成功/处理中
-4. 输出压测报告（QPS、延迟分布、业务分类占比）
+1. `register_test_users.sh` 批量注册用户并生成 `risk_tokens.txt`（5000 个 Token）
+2. `diversify_user_profiles.sh` 按 userId%100 区分正常用户与羊毛党画像
+3. `wrk_seckill_risk_test.lua` 自动分类统计：限流拦截、风控拦截、库存不足、重复下单、成功/处理中
 
-**参数说明：**
+**wrk 参数：**
 
-- `$1` 用户数（默认 5000）
-- `$2` 并发连接数（默认 200）
-- `$3` 持续时间秒（默认 30）
-- `$4` 券ID（默认 1）
+- `-t4` 4 线程
+- `-c100` 100 并发连接
+- `-d30s` 持续 30 秒
 
 **示例输出：**
 
 ```
 ========================================
-总请求: 1209772 | QPS: 40200
+总请求: 844121 | QPS: 28055
 --- 业务分类 ---
-限流拦截: 1108670 (92.43%)
-库存不足: 90300 (7.53%)
-重复下单: 453 (0.04%)
+限流拦截: 753718 (89.29%)
+风控拦截: 86036 (10.19%)
+库存不足: 4079 (0.48%)
+重复下单: 188 (0.02%)
 成功/处理中: 100 (0.01%)
-延迟: avg=6.99ms p50=2.51ms p99=27.08ms
+延迟: avg=4.98ms p50=1.95ms p99=18.48ms
 ========================================
 ```
 
-> **注意**：首次压测前需通过 `seckill_test.sh` 或手动调用 `/user/login` 获取 Token 并写入 `tokens.txt`。Token 有效期 2
-> 小时，过期需重新生成。
+> **注意**：首次压测前需执行 `register_test_users.sh` 注册用户并生成 `risk_tokens.txt`，再执行 `diversify_user_profiles.sh` 区分用户画像。Token 有效期 2 小时，过期需重新生成。
 
 ---
 

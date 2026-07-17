@@ -21,6 +21,9 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.env.Environment;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -47,26 +50,51 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
     @PostConstruct
     public void initSeckillStock() {
         if (!Arrays.asList(environment.getActiveProfiles()).contains(SeckillConstant.PROFILE_DEV)) {
-            log.info("非 dev 环境，跳过 Redis 库存初始化");
+            log.info("非 dev 环境，跳过秒杀测试数据重置");
             return;
         }
-        log.info("开始初始化秒杀库存到Redis...");
+        log.info("开始重置秒杀测试数据（DB库存/订单 + Redis）...");
         var seckillVouchers = seckillVoucherService.list();
 
         for (var voucher : seckillVouchers) {
-            String stockKey = RedisKeyConstant.getSeckillStockKey(voucher.getId());
-            String orderKey = RedisKeyConstant.getSeckillOrderKey(voucher.getId());
+            Long voucherId = voucher.getId();
+            Integer resetStock = voucher.getInitialStock() != null ? voucher.getInitialStock() : voucher.getStock();
 
-            // 1. 先清空旧的库存和订单记录
+            // 1. DB库存字段重置回初始值
+            seckillVoucherService.update()
+                    .set("stock", resetStock)
+                    .eq("id", voucherId)
+                    .update();
+
+            // 2. 清空该券的历史订单（避免"不能重复下单"挡住重复压测）
+            // 注意：这里只清 voucher_order（业务订单表），不动 risk:orderCount（风控画像数据，跨压测保留）
+            this.remove(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SeckillOrder>()
+                    .eq(SeckillOrder::getVoucherId, voucherId));
+
+            // 3. 重置 Redis stockKey / orderKey
+            String stockKey = RedisKeyConstant.getSeckillStockKey(voucherId);
+            String orderKey = RedisKeyConstant.getSeckillOrderKey(voucherId);
             stringRedisTemplate.delete(stockKey);
             stringRedisTemplate.delete(orderKey);
+            stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(resetStock));
 
-            // 2. 从数据库读取库存并设置到Redis
-            stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(voucher.getStock()));
-            log.info("初始化秒杀券ID={}, 库存={}", voucher.getId(), voucher.getStock());
+            // 4. 清空该券所有用户的幂等状态key（用SCAN，避免KEYS阻塞Redis）
+            clearConsumedKeys(voucherId);
+
+            log.info("重置秒杀券ID={}, 库存重置为={}", voucherId, resetStock);
         }
+        log.info("秒杀测试数据重置完成，共{}个商品", seckillVouchers.size());
+    }
 
-        log.info("秒杀库存初始化完成，共{}个商品", seckillVouchers.size());
+    private void clearConsumedKeys(Long voucherId) {
+        String pattern = "seckill:{" + voucherId + "}:*:consumed";
+        var options = ScanOptions.scanOptions().match(pattern).count(500).build();
+        try (var cursor = stringRedisTemplate.execute((RedisCallback<Cursor<byte[]>>)
+                connection -> connection.scan(options))) {
+            while (cursor.hasNext()) {
+                stringRedisTemplate.delete(new String(cursor.next()));
+            }
+        }
     }
 
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT =

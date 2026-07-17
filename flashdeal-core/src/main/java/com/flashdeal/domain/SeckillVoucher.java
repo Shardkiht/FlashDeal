@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @Accessors(chain = true)
-@TableName("tb_seckill_voucher")
+@TableName("seckill_voucher")
 public class SeckillVoucher implements Serializable {
 
     @Serial
@@ -33,6 +33,11 @@ public class SeckillVoucher implements Serializable {
      * 库存
      */
     private Integer stock;
+
+    /**
+     * 初始库存（用于dev环境重置，不受下单扣减影响）
+     */
+    private Integer initialStock;
 
     /**
      * 创建时间

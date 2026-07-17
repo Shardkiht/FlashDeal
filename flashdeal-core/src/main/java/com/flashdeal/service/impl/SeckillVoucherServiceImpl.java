@@ -23,17 +23,13 @@ public class SeckillVoucherServiceImpl extends ServiceImpl<SeckillVoucherMapper,
 
     @Transactional
     public void addSeckillVoucher(SeckillVoucher seckillVoucher) {
-        // 保存秒杀优惠券
         save(seckillVoucher);
-
-        // 库存同步到 Redis
-        Integer stock = seckillVoucher.getStock();
-        if (stock == null) {
-            log.warn("秒杀券库存为空，默认设为 0, voucherId={}", seckillVoucher.getId());
-            stock = 0;
+        Integer stock = seckillVoucher.getStock() == null ? 0 : seckillVoucher.getStock();
+        if (seckillVoucher.getInitialStock() == null) {
+            seckillVoucher.setInitialStock(stock);
+            updateById(seckillVoucher);
         }
         stringRedisTemplate.opsForValue().set(
-                RedisKeyConstant.getSeckillStockKey(seckillVoucher.getId()),
-                stock.toString());
+                RedisKeyConstant.getSeckillStockKey(seckillVoucher.getId()), stock.toString());
     }
 }
