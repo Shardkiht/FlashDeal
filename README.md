@@ -21,7 +21,9 @@
 
 ## 📖 项目简介
 
-**FlashDeal** 是一个面向高并发场景的秒杀系统，核心解决电商促销、限量抢购等业务中常见的三大难题：**超卖**、**重复下单**、**流量洪峰**。系统通过 Redis Lua 脚本实现原子性库存预扣减，借助 RocketMQ 完成订单异步落库，使用 Redisson 限流器保障系统稳定性，并内置决策树风控引擎识别羊毛党与可疑请求。
+**FlashDeal** 是一个面向高并发场景的秒杀系统，核心解决电商促销、限量抢购等业务中常见的三大难题： **超卖**、 **重复下单**、
+**流量洪峰**。系统通过 Redis Lua 脚本实现原子性库存预扣减，借助 RocketMQ 完成订单异步落库，使用 Redisson
+限流器保障系统稳定性，并内置决策树风控引擎识别羊毛党与可疑请求。
 
 整体设计遵循"**限流 → 风控 → 原子预扣 → 异步落库 → 失败回滚**"
 的分层防御理念，单机可支撑每秒数千次秒杀请求，在保证业务正确性的同时最大化吞吐能力。项目代码结构清晰、注释完善，既可作为生产级秒杀方案的参考实现，也适合作为学习高并发架构设计的实战案例。
@@ -47,14 +49,14 @@
 
 ### 关键验证结论
 
-| 验证项      | 预期            | 实际                | 状态 |
-|:---------|:--------------|:------------------|:---|
-| **超卖防护** | 0 超卖          | ✅ 0 超卖            | 通过 |
-| **重复下单** | 0 重复          | ✅ 188次被拦截         | 通过 |
-| **库存精准** | 100库存→100订单   | ✅ 100 订单成功        | 通过 |
+| 验证项       | 预期            | 实际                  | 状态 |
+|:-------------|:----------------|:----------------------|:-----|
+| **超卖防护** | 0 超卖          | ✅ 0 超卖             | 通过 |
+| **重复下单** | 0 重复          | ✅ 188次被拦截        | 通过 |
+| **库存精准** | 100库存→100订单 | ✅ 100 订单成功       | 通过 |
 | **限流效果** | 3000 req/s 放行 | ✅ 约 3000 req/s 放行 | 通过 |
-| **风控拦截** | 拦截可疑请求       | ✅ 10.19% 被拦截     | 通过 |
-| **响应时间** | p99 < 50ms    | ✅ p99 = 18.48ms   | 优秀 |
+| **风控拦截** | 拦截可疑请求    | ✅ 10.19% 被拦截      | 通过 |
+| **响应时间** | p99 < 50ms      | ✅ p99 = 18.48ms      | 优秀 |
 
 ### 性能分析
 
@@ -67,43 +69,45 @@
 
 ## ✨ 核心特性
 
-| 特性             | 实现方式                              | 说明                                                 |
-|:---------------|:----------------------------------|:---------------------------------------------------|
-| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，超出直接返回 HTTP 429    |
-| 🔐 **登录鉴权**    | JWT + 拦截器                         | 无状态认证，Token 有效期 2 小时，从 `authentication` header 提取  |
-| ⚡ **原子预扣**     | Redis Lua 脚本                      | `sadd` 判重 + `decr` 扣减原子完成，避免竞态                     |
-| 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式           |
-| 🔥 **库存预热**    | `@PostConstruct` 自动加载             | 应用启动时自动将 DB 秒杀库存同步到 Redis （仅 dev 环境）               |
-| 📨 **异步落库**    | RocketMQ 异步发送                     | Redis 预扣成功后异步发送 MQ；ServiceImpl 统一捕获异常并回滚           |
-| **DB 乐观锁**     | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                   |
-| 🔁 **三态幂等**    | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                           |
-| 💥 **超卖防御**    | DB 乐观锁 `stock > 0`                | `UPDATE ... SET stock = stock - 1 WHERE stock > 0` |
-| 🔄 **失败回滚**    | Redis Lua 原子回滚 + FAIL 标记          | MQ 发送失败 / 消费业务异常时原子回滚库存并标记 FAILED，用户可立即重试          |
-| 🔐 **风控引擎**    | risk-guard 决策树                    | 进程内推理，特征提取 + 决策树模型，拦截羊毛党与可疑请求            |
-| 🔍 **定时对账**    | `@Scheduled` + Redis SCAN         | 每 5 分钟扫描 PROCESSING 卡单，对比 DB 修复不一致数据，兜底 MQ 重试耗尽场景  |
+| 特性               | 实现方式                          | 说明                                                                        |
+|:-------------------|:----------------------------------|:----------------------------------------------------------------------------|
+| 🚀 **流量整形**    | Redisson `RRateLimiter`           | 全局限流 3000 req/s，超出直接返回 HTTP 429                                  |
+| 🔐 **登录鉴权**    | JWT + 拦截器                      | 无状态认证，Token 有效期 2 小时，从 `authentication` header 提取            |
+| ⚡ **原子预扣**    | Redis Lua 脚本                    | `sadd` 判重 + `decr` 扣减原子完成，避免竞态                                 |
+| 🆔 **全局唯一 ID** | Hutool Snowflake                  | 41 位时间戳 + 10 位机器 ID + 12 位序列号，趋势递增，支持分布式              |
+| 🔥 **库存预热**    | `@PostConstruct` 自动加载         | 应用启动时自动将 DB 秒杀库存同步到 Redis （仅 dev 环境）                    |
+| 📨 **异步落库**    | RocketMQ 异步发送                 | Redis 预扣成功后异步发送 MQ；ServiceImpl 统一捕获异常并回滚                 |
+| **DB 乐观锁**      | `WHERE stock > 0`                 | 数据库层兜底，防止超卖与重复下单                                            |
+| 🔁 **三态幂等**    | Redis `PROCESSING/SUCCESS/FAILED` | 消费端三态幂等键，支持 MQ 重试与前端状态轮询                                |
+| 💥 **超卖防御**    | DB 乐观锁 `stock > 0`             | `UPDATE ... SET stock = stock - 1 WHERE stock > 0`                          |
+| 🔄 **失败回滚**    | Redis Lua 原子回滚 + FAIL 标记    | MQ 发送失败 / 消费业务异常时原子回滚库存并标记 FAILED，用户可立即重试       |
+| 🔐 **风控引擎**    | risk-guard 决策树                 | 进程内推理，特征提取 + 决策树模型，拦截羊毛党与可疑请求                     |
+| 🔍 **定时对账**    | `@Scheduled` + Redis SCAN         | 每 5 分钟扫描 PROCESSING 卡单，对比 DB 修复不一致数据，兜底 MQ 重试耗尽场景 |
 
 ---
 
 ## 🛠️ 技术栈
 
-| 分类         | 技术              | 版本          |
-|:-----------|:----------------|:------------|
-| **基础框架**   | Spring Boot     | 3.5.16      |
-| **开发语言**   | Java            | 17          |
-| **ORM 框架** | MyBatis Plus    | 3.5.16      |
-| **关系型数据库** | MySQL           | 8.0+        |
-| **缓存中间件**  | Redis           | 7.0+        |
-| **限流**     | Redisson        | 3.27.0      |
-| **消息队列**   | Apache RocketMQ | 4.9.7       |
-| **认证授权**   | JWT             | 0.12.6      |
-| **风控引擎**   | risk-guard (决策树) | 1.0.0       |
-| **工具库**    | Hutool / Lombok | 5.8.34 / -- |
+| 分类             | 技术                | 版本        |
+|:-----------------|:--------------------|:------------|
+| **基础框架**     | Spring Boot         | 3.5.16      |
+| **开发语言**     | Java                | 17          |
+| **ORM 框架**     | MyBatis Plus        | 3.5.16      |
+| **关系型数据库** | MySQL               | 8.0+        |
+| **缓存中间件**   | Redis               | 7.0+        |
+| **限流**         | Redisson            | 3.27.0      |
+| **消息队列**     | Apache RocketMQ     | 4.9.7       |
+| **认证授权**     | JWT                 | 0.12.6      |
+| **风控引擎**     | risk-guard (决策树) | 1.0.0       |
+| **工具库**       | Hutool / Lombok     | 5.8.34 / -- |
 
 ---
 
 ## 🏗️ 系统架构
 
-下图展示了 FlashDeal 的整体架构与各组件协作关系。客户端请求经过限流器与登录拦截器后进入业务层，业务层先调用 risk-guard 风控引擎进行风险评估，通过后再经 Redis Lua 完成原子预扣，最后通过 RocketMQ 异步落库，最终由消费者在幂等校验与 DB 乐观锁保护下写入 MySQL。
+下图展示了 FlashDeal 的整体架构与各组件协作关系。客户端请求经过限流器与登录拦截器后进入业务层，业务层先调用 risk-guard
+风控引擎进行风险评估，通过后再经 Redis Lua 完成原子预扣，最后通过 RocketMQ 异步落库，最终由消费者在幂等校验与 DB 乐观锁保护下写入
+MySQL。
 
 ```mermaid
 flowchart TB
@@ -129,7 +133,6 @@ flowchart TB
         STOCK[("seckill:{id}:stock<br/>库存")]
         ORDER[("seckill:{id}:order<br/>已购用户 Set")]
         IDEM[("seckill:{voucherId}:userId:consumed<br/>三态幂等键")]
-
         LUA["Lua 脚本<br/>原子预扣"]
         RBLUA["rollback.lua<br/>原子回滚"]
     end
@@ -151,7 +154,6 @@ flowchart TB
     RISK -->|通过| SVC
     RISK -->|拦截| RISKREJ["拒绝: RISK_REJECT"]
     SVC --> IDG
-
     SVC -->|执行| LUA
     LUA --> STOCK
     LUA --> ORDER
@@ -163,23 +165,23 @@ flowchart TB
     TOPIC --> CONS
     CONS -->|终态判断| IDEM
     CONS -->|DB 操作| MYSQL
-    MYSQL -->|stock=stock-1<br/>WHERE stock>0| MYSQL
-
-    style RL fill:#e65100,color:#fff
-    style LUA fill:#2e7d32,color:#fff
-    style TOPIC fill:#1565c0,color:#fff
-    style MYSQL fill:#c62828,color:#fff
-    style REJ fill:#b71c1c,color:#fff
-    style UNAUTH fill:#b71c1c,color:#fff
-    style RISKREJ fill:#b71c1c,color:#fff
-    style RISK fill:#6a1b9a,color:#fff
+    MYSQL -->|stock = stock - 1<br/>WHERE stock>0| MYSQL
+    style RL fill: #e65100, color: #fff
+    style LUA fill: #2e7d32, color: #fff
+    style TOPIC fill: #1565c0, color: #fff
+    style MYSQL fill: #c62828, color: #fff
+    style REJ fill: #b71c1c, color: #fff
+    style UNAUTH fill: #b71c1c, color: #fff
+    style RISKREJ fill: #b71c1c, color: #fff
+    style RISK fill: #6a1b9a, color: #fff
 ```
 
 ---
 
 ## ⚡ 秒杀核心流程
 
-下图展示了从用户点击"立即抢购"到订单创建完成的完整链路，包含限流、鉴权、风控检查、Lua 原子预扣、MQ 异步发送、失败回滚等关键环节。这是整个系统最核心的流程，所有的高并发设计都集中体现在这里。
+下图展示了从用户点击"立即抢购"到订单创建完成的完整链路，包含限流、鉴权、风控检查、Lua 原子预扣、MQ
+异步发送、失败回滚等关键环节。这是整个系统最核心的流程，所有的高并发设计都集中体现在这里。
 
 ```mermaid
 flowchart TD
@@ -190,7 +192,6 @@ flowchart TD
     AUTH -->|已登录| RISK{风控检查<br/>risk-guard}
     RISK -->|拦截| RISKREJ[返回: 操作过于频繁]
     RISK -->|通过| GEN[生成全局唯一订单 ID<br/>Snowflake]
-
     GEN --> LUA[执行 Lua 脚本<br/>原子操作]
     LUA --> CHECK1{库存 > 0?}
     CHECK1 -->|否| R3[返回: 优惠券已卖完<br/>Lua 返回 1]
@@ -202,18 +203,17 @@ flowchart TD
     MQ -->|发送成功| OK[返回: 正在抢购中<br/>前端轮询状态]
     MQ -->|发送失败| ROLLBACK[执行 rollback.lua<br/>回滚库存+资格, 标记 FAILED]
     ROLLBACK --> R5[返回: 抢购失败<br/>用户可立即重试]
-
-    style START fill:#6a1b9a,color:#fff
-    style OK fill:#2e7d32,color:#fff
-    style R1 fill:#b71c1c,color:#fff
-    style R2 fill:#b71c1c,color:#fff
-    style R3 fill:#b71c1c,color:#fff
-    style R4 fill:#b71c1c,color:#fff
-    style R5 fill:#b71c1c,color:#fff
-    style RISKREJ fill:#b71c1c,color:#fff
-    style LUA fill:#f9a825,color:#212121
-    style RISK fill:#6a1b9a,color:#fff
-    style ROLLBACK fill:#e65100,color:#fff
+    style START fill: #6a1b9a, color: #fff
+    style OK fill: #2e7d32, color: #fff
+    style R1 fill: #b71c1c, color: #fff
+    style R2 fill: #b71c1c, color: #fff
+    style R3 fill: #b71c1c, color: #fff
+    style R4 fill: #b71c1c, color: #fff
+    style R5 fill: #b71c1c, color: #fff
+    style RISKREJ fill: #b71c1c, color: #fff
+    style LUA fill: #f9a825, color: #212121
+    style RISK fill: #6a1b9a, color: #fff
+    style ROLLBACK fill: #e65100, color: #fff
 ```
 
 ---
@@ -229,28 +229,24 @@ flowchart TD
     STATUS -->|SUCCESS/FAILED| SKIP[已是终态, 跳过]
     STATUS -->|PROCESSING| CREATE[构建订单对象<br/>createSeckillOrder]
     STATUS -->|不存在| HANDLEFAIL[handleFail<br/>查库兜底]
-
     CREATE --> DBSAVE{DB 操作}
     DBSAVE -->|成功| MARK[标记 SUCCESS]
     MARK --> DONE([消费完成])
-
     DBSAVE -->|业务异常| CHECK{查 DB<br/>订单是否落库}
     CHECK -->|已落库| MARK2[标记 SUCCESS<br/>不回滚]
     MARK2 --> DONE
     CHECK -->|未落库| RBLUA2[执行 rollback.lua<br/>原子回滚库存+资格+标记FAILED]
     RBLUA2 --> DONE
-
     DBSAVE -->|系统异常| THROW1[抛出异常<br/>触发 MQ 重试]
     THROW1 --> RETRY{{MQ 自动重试<br/>最多 3 次}}
     RETRY -->|重试耗尽| DLQ[进入死信队列<br/>人工介入]
-
-    style MSG fill:#6a1b9a,color:#fff
-    style DONE fill:#2e7d32,color:#fff
-    style SKIP fill:#f9a825,color:#212121
-    style THROW1 fill:#b71c1c,color:#fff
-    style DLQ fill:#b71c1c,color:#fff
-    style RBLUA2 fill:#e65100,color:#fff
-    style DBSAVE fill:#1565c0,color:#fff
+    style MSG fill: #6a1b9a, color: #fff
+    style DONE fill: #2e7d32, color: #fff
+    style SKIP fill: #f9a825, color: #212121
+    style THROW1 fill: #b71c1c, color: #fff
+    style DLQ fill: #b71c1c, color: #fff
+    style RBLUA2 fill: #e65100, color: #fff
+    style DBSAVE fill: #1565c0, color: #fff
 ```
 
 ---
@@ -365,13 +361,13 @@ FlashDeal                                          # 多模块 Maven 父项目
 
 ### 环境准备
 
-| 依赖       | 最低版本  | 说明   |
-|:---------|:------|:-----|
-| JDK      | 17    | 必须   |
-| Maven    | 3.8+  | 构建工具 |
-| MySQL    | 8.0+  | 数据存储 |
-| Redis    | 7.0+  | 缓存   |
-| RocketMQ | 4.9.7 | 消息队列 |
+| 依赖     | 最低版本 | 说明     |
+|:---------|:---------|:---------|
+| JDK      | 17       | 必须     |
+| Maven    | 3.8+     | 构建工具 |
+| MySQL    | 8.0+     | 数据存储 |
+| Redis    | 7.0+     | 缓存     |
+| RocketMQ | 4.9.7    | 消息队列 |
 
 ### 1. 初始化数据库
 
@@ -379,7 +375,7 @@ FlashDeal                                          # 多模块 Maven 父项目
 -- 用户表
 CREATE TABLE `user`
 (
-    `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+    `id`          BIGINT NOT NULL AUTO_INCREMENT,
     `openid`      VARCHAR(45)  DEFAULT NULL,
     `name`        VARCHAR(32)  DEFAULT NULL,
     `phone`       VARCHAR(11)  DEFAULT NULL,
@@ -561,10 +557,10 @@ authentication: <登录返回的 token>
 
 **状态说明：**
 
-| 状态           | 含义                                |
-|:-------------|:----------------------------------|
-| `PROCESSING` | 订单正在处理中                           |
-| `SUCCESS`    | 订单创建成功                            |
+| 状态         | 含义                                                    |
+|:-------------|:--------------------------------------------------------|
+| `PROCESSING` | 订单正在处理中                                          |
+| `SUCCESS`    | 订单创建成功                                            |
 | `FAILED`     | 订单创建失败（已回滚库存）或 DB 无订单且 Redis 状态丢失 |
 
 **库存不足：**
@@ -782,7 +778,8 @@ wrk -t4 -c100 -d30s -s wrk_seckill_risk_test.lua http://localhost:8080
 ========================================
 ```
 
-> **注意**：首次压测前需执行 `register_test_users.sh` 注册用户并生成 `risk_tokens.txt`，再执行 `diversify_user_profiles.sh` 区分用户画像。Token 有效期 2 小时，过期需重新生成。
+> **注意**：首次压测前需执行 `register_test_users.sh` 注册用户并生成 `risk_tokens.txt`，再执行
+> `diversify_user_profiles.sh` 区分用户画像。Token 有效期 2 小时，过期需重新生成。
 
 ---
 
