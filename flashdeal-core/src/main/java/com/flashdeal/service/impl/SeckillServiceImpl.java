@@ -91,7 +91,9 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
         var options = ScanOptions.scanOptions().match(pattern).count(500).build();
         try (var cursor = stringRedisTemplate.execute((RedisCallback<Cursor<byte[]>>)
                 connection -> connection.scan(options))) {
-            while (cursor.hasNext()) {
+            while (true) {
+                assert cursor != null;
+                if (!cursor.hasNext()) break;
                 stringRedisTemplate.delete(new String(cursor.next()));
             }
         }

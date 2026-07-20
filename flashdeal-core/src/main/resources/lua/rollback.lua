@@ -4,10 +4,10 @@ local idempotencyKey = KEYS[3]
 local userId         = ARGV[1]
 local mode           = ARGV[2]  -- "DELETE" 清除状态 / "FAIL" 标记失败
 
--- 回补库存
-redis.call('incr', stockKey)
--- 移除用户购买记录
-redis.call('srem', orderKey, userId)
+-- 从订单集合中移除用户 ID，并增加库存
+if redis.call('srem', orderKey, userId) == 1 then
+    redis.call('incr', stockKey)
+end
 
 -- 处理幂等 key
 if mode == "DELETE" then
