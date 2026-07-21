@@ -39,6 +39,8 @@ public class SeckillConstant {
     // ========== 定时对账 ==========
     /** 对账任务执行间隔（毫秒），5 分钟 */
     public static final long RECONCILE_INTERVAL_MS = 5 * 60 * 1000L;
+    /** PROCESSING 幂等键逻辑过期阈值（秒），超过此时间对账任务才处理 */
+    public static final long PROCESSING_LOGICAL_EXPIRE_SECONDS = 5 * 60;
 
     // ========== 环境与数据库 ==========
     /** 开发环境 profile 名称 */

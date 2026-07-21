@@ -82,7 +82,7 @@
 | 💥 **超卖防御**    | DB 乐观锁 `stock > 0`             | `UPDATE ... SET stock = stock - 1 WHERE stock > 0`                          |
 | 🔄 **失败回滚**    | Redis Lua 原子回滚 + FAIL 标记    | MQ 发送失败 / 消费业务异常时原子回滚库存并标记 FAILED，用户可立即重试       |
 | 🔐 **风控引擎**    | risk-guard 决策树                 | 进程内推理，特征提取 + 决策树模型，拦截羊毛党与可疑请求                     |
-| 🔍 **定时对账**    | `@Scheduled` + Redis SCAN         | 每 5 分钟扫描 PROCESSING 卡单，对比 DB 修复不一致数据，兜底 MQ 重试耗尽场景 |
+| 🔍 **定时对账**    | `@Scheduled` + Redis SCAN         | 每 5 分钟扫描 PROCESSING 卡单，逻辑过期（5min）后才处理，避免误回滚还在投递的 MQ 消息 |
 
 ---
 
@@ -723,13 +723,14 @@ MQ 消息体从完整 `SeckillOrder` 精简为只含 `userId` 和 `voucherId` �
 
 MQ 重试耗尽后，订单可能卡在 `PROCESSING` 状态（消费者异常、进程崩溃等）。定时对账任务每 5 分钟执行一次，作为最终一致性兜底：
 
-1. **SCAN 扫描**：遍历 Redis 中所有 `seckill:*:consumed` 幂等键，过滤出 `PROCESSING` 状态
-2. **对比 DB**：解析 key 中的 `voucherId` 和 `userId`，查询 DB 订单是否存在
-3. **修复不一致**：
+1. **SCAN 扫描**：遍历 Redis 中所有 `seckill:*:consumed` 幂等键，过滤出 `PROCESSING:*` 格式
+2. **逻辑过期检查**：解析 value 中的时间戳，距当前不足 5 分钟的键直接跳过（MQ 可能还在投递），只有超过阈值的才进入对账
+3. **对比 DB**：解析 key 中的 `voucherId` 和 `userId`，查询 DB 订单是否存在
+4. **修复不一致**：
     - DB 有订单 → Redis 修正为 `SUCCESS`（消费者已落库但标记前崩溃）
     - DB 无订单 → 执行 `rollback.lua` 原子回滚库存+资格，标记 `FAILED`（MQ 重试耗尽仍未落库）
 
-> 5 分钟间隔的设定确保大于 MQ 3 次重试的总耗时（~4min），避免对账与 MQ 重试冲突导致库存多加。
+> 幂等键 value 格式为 `PROCESSING:{timestamp}`，对账任务通过时间戳判断逻辑过期，确保不会误回滚还在 MQ 重试窗口内的消息。
 
 ---
 

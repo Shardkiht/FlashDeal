@@ -140,8 +140,9 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
                         : MessageConstant.REPEAT_ORDER);
             }
 
-            // 3. MQ发送前先标记 PROCESSING，让用户及时感知这个订单正在处理
-            stringRedisTemplate.opsForValue().set(idempotencyKey, SeckillConstant.STATUS_PROCESSING);
+            // 3. MQ发送前先标记 PROCESSING:时间戳，对账任务根据时间戳判断是否逻辑过期
+            stringRedisTemplate.opsForValue().set(idempotencyKey,
+                    SeckillConstant.STATUS_PROCESSING + ":" + System.currentTimeMillis());
 
             // 4. 异步发送 MQ，失败回调自动回滚 Redis 库存
             log.info("开始异步发送MQ, userId={}, voucherId={}", userId, voucherId);
@@ -153,8 +154,7 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
             // 业务异常（库存不足/重复下单）：Lua 未扣减库存，直接抛出不回滚
         } catch (BusinessException e) {
             throw e;
-
-            // 系统异常：Lua 已扣减库存，回滚后抛出原始异常
+            // 系统异常：Lua 可能已扣减库存，回滚后抛出原始异常
         } catch (Exception e) {
             log.error("秒杀失败, 回滚Redis, voucherId={}, userId={}", voucherId, userId, e);
             stringRedisTemplate.execute(
@@ -219,8 +219,8 @@ public class SeckillServiceImpl extends ServiceImpl<SeckillOrderMapper, SeckillO
             return SeckillConstant.STATUS_SUCCESS;
         }
 
-        // 3. 数据库无订单
-        if (SeckillConstant.STATUS_PROCESSING.equals(status)) {
+        // 3. 数据库无订单，Redis 仍为 PROCESSING（含时间戳）→ 返回处理中
+        if (status != null && status.startsWith(SeckillConstant.STATUS_PROCESSING)) {
             return SeckillConstant.STATUS_PROCESSING;
         }
 

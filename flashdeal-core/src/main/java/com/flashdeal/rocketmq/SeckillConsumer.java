@@ -23,6 +23,15 @@ import java.util.Arrays;
  */
 @Slf4j
 @Component
+/*
+  RocketMQ 消费者监听配置，用于异步处理秒杀订单消息。
+
+  @param topic              监听的消息主题，对应秒杀券下单 Topic（voucher-order-topic）
+ * @param consumerGroup      消费者组名称，同一组内的消费者负载均衡消费消息（voucherorder_group）
+ * @param messageModel       消息消费模式，CLUSTERING 表示集群消费，每条消息仅被组内一个消费者处理
+ * @param consumeThreadMax   最大消费线程数，控制并发处理上限（32）
+ * @param maxReconsumeTimes  消息最大重试消费次数，超过后进入死信队列（3 次）
+ */
 @RocketMQMessageListener(
         topic = MessageConstant.VOUCHER_ORDER_TOPIC,
         consumerGroup = MessageConstant.VOUCHER_ORDER_CONSUMER_GROUP,

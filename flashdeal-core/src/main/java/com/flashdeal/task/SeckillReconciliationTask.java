@@ -56,7 +56,22 @@ public class SeckillReconciliationTask {
                 String key = cursor.next();
                 String status = stringRedisTemplate.opsForValue().get(key);
 
-                if (!SeckillConstant.STATUS_PROCESSING.equals(status)) {
+                // 只处理 PROCESSING:xxx 格式的键
+                if (status == null || !status.startsWith(SeckillConstant.STATUS_PROCESSING + ":")) {
+                    continue;
+                }
+
+                // 解析时间戳，检查是否逻辑过期（超过阈值才处理，避免误回滚还在投递的 MQ 消息）
+                long createTime;
+                try {
+                    createTime = Long.parseLong(status.substring(status.lastIndexOf(':') + 1));
+                } catch (NumberFormatException e) {
+                    log.warn("对账解析时间戳失败, key={}, status={}", key, status);
+                    continue;
+                }
+                long elapsedSeconds = (System.currentTimeMillis() - createTime) / 1000;
+                if (elapsedSeconds < SeckillConstant.PROCESSING_LOGICAL_EXPIRE_SECONDS) {
+                    log.debug("对账跳过未过期键, key={}, elapsed={}s", key, elapsedSeconds);
                     continue;
                 }
 
