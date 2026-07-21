@@ -2,7 +2,6 @@ package com.flashdeal.task;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.flashdeal.common.constant.SeckillConstant;
-import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.common.constant.RedisKeyConstant;
 import com.flashdeal.domain.SeckillOrder;
 import com.flashdeal.mapper.SeckillOrderMapper;
@@ -11,11 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-
-import java.util.Arrays;
 
 /**
  * 秒杀订单定时对账任务
@@ -30,9 +26,6 @@ import java.util.Arrays;
 @Component
 @RequiredArgsConstructor
 public class SeckillReconciliationTask {
-
-    private static final DefaultRedisScript<Long> ROLLBACK_SCRIPT =
-            LuaScriptUtil.load(SeckillConstant.LUA_ROLLBACK_SCRIPT, Long.class);
 
     private final StringRedisTemplate stringRedisTemplate;
     private final SeckillOrderMapper seckillOrderMapper;
@@ -49,7 +42,7 @@ public class SeckillReconciliationTask {
 
         int stuckCount = 0;
         int fixedCount = 0;
-        int rolledBackCount = 0;
+        int alarmCount = 0;
 
         try (Cursor<String> cursor = stringRedisTemplate.scan(options)) {
             while (cursor.hasNext()) {
@@ -99,21 +92,14 @@ public class SeckillReconciliationTask {
                     fixedCount++;
                     log.info("对账修复: 订单已落库但 Redis 为 PROCESSING, userId={}, voucherId={}", userId, voucherId);
                 } else {
-                    // DB 无订单，Redis 卡在 PROCESSING → 回滚并标记 FAILED
-                    String stockKey = RedisKeyConstant.getSeckillStockKey(voucherId);
-                    String orderKey = RedisKeyConstant.getSeckillOrderKey(voucherId);
-                    stringRedisTemplate.execute(
-                            ROLLBACK_SCRIPT,
-                            Arrays.asList(stockKey, orderKey, key),
-                            String.valueOf(userId), SeckillConstant.ROLLBACK_RESULT_FAIL, SeckillConstant.ROLLBACK_EXPIRE_SECONDS
-                    );
-                    rolledBackCount++;
-                    log.warn("对账回滚: 订单未落库且 Redis 为 PROCESSING, userId={}, voucherId={}", userId, voucherId);
+                    // DB 无订单 → 不回滚，只告警，由死信队列人工处理
+                    alarmCount++;
+                    log.warn("对账告警: 订单超时未落库，待人工处理, key={}, userId={}, voucherId={}", key, userId, voucherId);
                 }
             }
         }
 
-        log.info("对账任务完成: 卡单={}, 修复={}, 回滚={}", stuckCount, fixedCount, rolledBackCount);
+        log.info("对账任务完成: 卡单={}, 修复={}, 告警={}", stuckCount, fixedCount, alarmCount);
     }
 
     /**
