@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
  * 扫描 Redis 中处于 PROCESSING 状态的幂等键，对比数据库订单记录，修复不一致数据：
  * <ul>
  *   <li>DB 有订单、Redis 为 PROCESSING → 修复为 SUCCESS</li>
- *   <li>DB 无订单、Redis 为 PROCESSING → 回滚库存+资格，标记 FAILED</li>
+ *   <li>DB 无订单、Redis 为 PROCESSING → 不回滚，只告警转人工处理
  * </ul>
  */
 @Slf4j
