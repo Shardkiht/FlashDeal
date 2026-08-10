@@ -6,7 +6,9 @@ import com.flashdeal.common.constant.SeckillConstant;
 import com.flashdeal.common.exception.BusinessException;
 import com.flashdeal.common.utils.LuaScriptUtil;
 import com.flashdeal.domain.dto.SeckillOrderMessage;
+import com.flashdeal.domain.SeckillVoucher;
 import com.flashdeal.service.api.SeckillService;
+import com.flashdeal.service.api.SeckillVoucherService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.MessageModel;
@@ -46,6 +48,7 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrderMessage> {
             LuaScriptUtil.load(SeckillConstant.LUA_ROLLBACK_SCRIPT, Long.class);
 
     private final SeckillService seckillService;
+    private final SeckillVoucherService seckillVoucherService;
     private final StringRedisTemplate stringRedisTemplate;
 
     @Override
@@ -93,19 +96,34 @@ public class SeckillConsumer implements RocketMQListener<SeckillOrderMessage> {
                 .count();
 
         if (count > 0) {
-            // 订单已存在，标记 SUCCESS
+            // 订单已存在（上次成功但没来得及标记），标记 SUCCESS
             stringRedisTemplate.opsForValue().set(idempotencyKey, SeckillConstant.STATUS_SUCCESS);
             return;
         }
 
-        // 2. 订单未写入，回滚 Redis
+        // 2. 订单未写入，区分原因处理
         String stockKey = RedisKeyConstant.getSeckillStockKey(voucherId);
         String orderKey = RedisKeyConstant.getSeckillOrderKey(voucherId);
+
+        // 2a. 查 DB 库存，判断是否真的卖完了
+        SeckillVoucher voucher = seckillVoucherService.getById(voucherId);
+        if (voucher != null && voucher.getStock() <= 0) {
+            // DB 库存已耗尽：不回滚库存（回滚了也是白造，下一个进来还是失败）
+            // 只清除用户占位 + 标记 FAILED + 同步 Redis 库存为 0
+            stringRedisTemplate.opsForSet().remove(orderKey, userId);
+            stringRedisTemplate.opsForValue().set(stockKey, "0");
+            stringRedisTemplate.opsForValue().set(idempotencyKey, SeckillConstant.STATUS_FAILED,
+                    Long.parseLong(SeckillConstant.ROLLBACK_EXPIRE_SECONDS), java.util.concurrent.TimeUnit.SECONDS);
+            log.warn("DB 库存已耗尽, 不回滚库存, userId={}, voucherId={}, reason={}", userId, voucherId, reason);
+            return;
+        }
+
+        // 2b. DB 库存仍充足，说明是其他原因（数据不一致等），正常回滚库存
         stringRedisTemplate.execute(
                 ROLLBACK_SCRIPT,
                 Arrays.asList(stockKey, orderKey, idempotencyKey),
                 String.valueOf(userId), SeckillConstant.ROLLBACK_RESULT_FAIL, SeckillConstant.ROLLBACK_EXPIRE_SECONDS
         );
-        log.error("订单未写入，已回滚, userId={}, voucherId={}, reason={}", userId, voucherId, reason);
+        log.warn("订单未写入，已回滚, userId={}, voucherId={}, reason={}", userId, voucherId, reason);
     }
 }
